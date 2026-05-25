@@ -11,6 +11,7 @@ import com.demo.bestorytellers.chapter.repository.ChapterVersionRepository;
 import com.demo.bestorytellers.common.exception.ForbiddenException;
 import com.demo.bestorytellers.common.exception.ResourceNotFoundException;
 import com.demo.bestorytellers.common.exception.ValidationException;
+import com.demo.bestorytellers.common.util.DeltaUtil;
 import com.demo.bestorytellers.common.util.S3Util;
 import com.demo.bestorytellers.notification.service.NotificationService;
 import com.demo.bestorytellers.story.entity.Story;
@@ -52,13 +53,14 @@ class ChapterServiceTest {
     @Mock ChapterVersionRepository versionRepository;
     @Mock StoryRepository storyRepository;
     @Mock S3Util s3Util;
+    @Mock DeltaUtil deltaUtil;
     @Mock RedisTemplate<String, String> redisTemplate;
     @Mock NotificationService notificationService;
     @Mock ValueOperations<String, String> valueOps;
 
     private ChapterService service() {
         return new ChapterService(chapterRepository, versionRepository, storyRepository,
-            s3Util, redisTemplate, notificationService);
+            s3Util, deltaUtil, redisTemplate, notificationService);
     }
 
     private Story mockStory(UUID ownerId, String slug) {

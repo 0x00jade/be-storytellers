@@ -20,6 +20,7 @@ import com.demo.bestorytellers.chapter.repository.ChapterVersionRepository;
 import com.demo.bestorytellers.common.exception.ForbiddenException;
 import com.demo.bestorytellers.common.exception.ResourceNotFoundException;
 import com.demo.bestorytellers.common.exception.ValidationException;
+import com.demo.bestorytellers.common.util.DeltaUtil;
 import com.demo.bestorytellers.common.util.S3Util;
 import com.demo.bestorytellers.notification.service.NotificationService;
 import com.demo.bestorytellers.story.entity.Story;
@@ -45,6 +46,7 @@ public class ChapterService {
     private final ChapterVersionRepository versionRepository;
     private final StoryRepository storyRepository;
     private final S3Util s3Util;
+    private final DeltaUtil deltaUtil;
     private final RedisTemplate<String, String> redisTemplate;
     private final NotificationService notificationService;
 
@@ -52,12 +54,14 @@ public class ChapterService {
                           ChapterVersionRepository versionRepository,
                           StoryRepository storyRepository,
                           S3Util s3Util,
+                          DeltaUtil deltaUtil,
                           RedisTemplate<String, String> redisTemplate,
                           NotificationService notificationService) {
         this.chapterRepository = chapterRepository;
         this.versionRepository = versionRepository;
         this.storyRepository = storyRepository;
         this.s3Util = s3Util;
+        this.deltaUtil = deltaUtil;
         this.redisTemplate = redisTemplate;
         this.notificationService = notificationService;
     }
@@ -111,8 +115,9 @@ public class ChapterService {
     public AutosaveResponse autosave(String slug, int number, UUID userId, AutosaveRequest request) {
         Story story = loadStoryAndCheckOwnership(slug, userId);
         Chapter chapter = loadChapter(story.getId(), number);
+        String sanitized = deltaUtil.validateAndSanitize(request.content());
         String s3Key = "drafts/" + chapter.getId() + "/" + userId + ".json";
-        s3Util.uploadContent(s3Key, request.content());
+        s3Util.uploadContent(s3Key, sanitized);
         redisTemplate.opsForValue().set(
             "draft:" + chapter.getId() + ":" + userId, "exists", Duration.ofHours(24));
         return new AutosaveResponse(Instant.now());
@@ -124,26 +129,27 @@ public class ChapterService {
         Story story = loadStoryAndCheckOwnership(slug, userId);
         Chapter chapter = loadChapter(story.getId(), number);
 
+        String sanitized = deltaUtil.validateAndSanitize(request.content());
+        int wordCount = deltaUtil.countWords(sanitized);
+
         String publishedKey = "content/" + chapter.getId() + "/published.json";
         int nextVersion = versionRepository.findMaxVersionNumber(chapter.getId()) + 1;
         String versionKey = "content/" + chapter.getId() + "/v" + nextVersion + ".json";
 
-        s3Util.uploadContent(publishedKey, request.content());
-        s3Util.uploadContent(versionKey, request.content());
+        s3Util.uploadContent(publishedKey, sanitized);
+        s3Util.uploadContent(versionKey, sanitized);
 
-        ChapterVersion version = new ChapterVersion(
-            chapter, nextVersion, versionKey, request.wordCount(), userId);
+        ChapterVersion version = new ChapterVersion(chapter, nextVersion, versionKey, wordCount, userId);
         versionRepository.save(version);
 
         boolean wasPublished = chapter.getStatus() == ChapterStatus.PUBLISHED;
         int oldWordCount = chapter.getWordCount();
         chapter.setContentUrl(publishedKey);
-        chapter.setWordCount(request.wordCount());
+        chapter.setWordCount(wordCount);
         chapterRepository.save(chapter);
 
-        // Update story word count delta when chapter is already published
         if (wasPublished) {
-            int delta = request.wordCount() - oldWordCount;
+            int delta = wordCount - oldWordCount;
             if (delta != 0) {
                 storyRepository.adjustWordCount(story.getId(), delta);
             }
@@ -154,10 +160,10 @@ public class ChapterService {
         try {
             s3Util.deleteObject("drafts/" + chapter.getId() + "/" + userId + ".json");
         } catch (Exception ignored) {
-            // Draft may not exist — safe to ignore
+            // Draft may not exist
         }
 
-        return new SaveContentResponse(nextVersion, request.wordCount(), Instant.now());
+        return new SaveContentResponse(nextVersion, wordCount, Instant.now());
     }
 
     @Transactional
