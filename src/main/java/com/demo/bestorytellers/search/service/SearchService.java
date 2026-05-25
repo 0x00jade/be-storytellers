@@ -38,7 +38,7 @@ public class SearchService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponsecommit thi<UserCardResponse> searchUsers(String q, UUID currentUserId, int page, int size) {
+    public PageResponse<UserCardResponse> searchUsers(String q, UUID currentUserId, int page, int size) {
         if (q == null || q.trim().length() < 2) {
             throw new ValidationException("Query must be at least 2 characters");
         }
