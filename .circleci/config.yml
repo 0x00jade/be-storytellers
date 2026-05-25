@@ -1,0 +1,33 @@
+version: 2.1
+
+jobs:
+  build-and-test:
+    docker:
+      - image: cimg/openjdk:21.0
+        environment:
+          GRADLE_OPTS: -Dorg.gradle.daemon=false
+      - image: postgres:16-alpine
+        environment:
+          POSTGRES_DB: storytellers_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+      - image: redis:7-alpine
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - v1-gradle-{{ checksum "build.gradle" }}
+      - run:
+          name: Build and Test
+          command: ./gradlew clean build
+      - save_cache:
+          paths:
+            - ~/.gradle
+          key: v1-gradle-{{ checksum "build.gradle" }}
+      - store_test_results:
+          path: build/test-results
+
+workflows:
+  main:
+    jobs:
+      - build-and-test

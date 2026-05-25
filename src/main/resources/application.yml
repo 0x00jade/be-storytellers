@@ -1,0 +1,59 @@
+spring:
+  application:
+    name: be-storytellers
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/storytellers}
+    username: ${DB_USER:dev}
+    password: ${DB_PASS:dev}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port:  ${REDIS_PORT:6380}
+      password: ${REDIS_PASSWORD:root}
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID:dummy}
+            client-secret: ${GOOGLE_CLIENT_SECRET:dummy}
+            scope:
+              - email
+              - profile
+  threads:
+    virtual:
+      enabled: true
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:supersecretkey256bitminimumrequiredforsecurity}
+    access-token-expiry: 900
+    refresh-token-expiry: 604800
+  aws:
+    region: ${AWS_REGION:us-east-1}
+    s3:
+      bucket: ${S3_BUCKET:storytellers-content}
+  cors:
+    allowed-origin: ${CORS_ALLOWED_ORIGIN:http://localhost:3000}
+  frontend-url: ${FRONTEND_URL:http://localhost:3000}
+
+server:
+  port: 8080
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui
+  api-docs:
+    path: /api-docs

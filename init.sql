@@ -1,0 +1,9 @@
+-- init.sql
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dev') THEN
+CREATE ROLE dev WITH LOGIN PASSWORD 'dev';
+END IF;
+END$$;
+
+GRANT ALL PRIVILEGES ON DATABASE storytellers TO dev;
