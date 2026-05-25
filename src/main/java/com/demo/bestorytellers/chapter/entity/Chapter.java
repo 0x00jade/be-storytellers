@@ -22,11 +22,8 @@ public class Chapter extends BaseEntity {
     @Column(name = "title", nullable = false, length = 255)
     private String title;
 
-    @Column(name = "content_url", columnDefinition = "TEXT")
-    private String contentUrl;
-
-    @Column(name = "content_format", nullable = false, length = 20)
-    private String contentFormat = "DELTA";
+    @Column(name = "content", columnDefinition = "TEXT")
+    private String content;
 
     @Column(name = "chapter_number", nullable = false)
     private int chapterNumber;
@@ -52,15 +49,14 @@ public class Chapter extends BaseEntity {
     public UUID getId() { return id; }
     public Story getStory() { return story; }
     public String getTitle() { return title; }
-    public String getContentUrl() { return contentUrl; }
-    public String getContentFormat() { return contentFormat; }
+    public String getContent() { return content; }
     public int getChapterNumber() { return chapterNumber; }
     public int getWordCount() { return wordCount; }
     public ChapterStatus getStatus() { return status; }
     public Instant getPublishedAt() { return publishedAt; }
 
     public void setTitle(String title) { this.title = title; }
-    public void setContentUrl(String contentUrl) { this.contentUrl = contentUrl; }
+    public void setContent(String content) { this.content = content; }
     public void setWordCount(int wordCount) { this.wordCount = wordCount; }
     public void setStatus(ChapterStatus status) { this.status = status; }
     public void setPublishedAt(Instant publishedAt) { this.publishedAt = publishedAt; }

@@ -583,28 +583,37 @@ Update chapter content or title. Author only.
 ---
 
 ### POST `/stories/{slug}/chapters/{number}/autosave` 🔒
-Save draft content to S3 without creating a version record. Author only.
+Save draft HTML content to the DB without creating a version record. Author only.
 
 **Request**
-{ "content": { ...QuillDelta... }, "wordCount": 842 }
+```json
+{ "content": "<p>Once upon a time...</p>" }
+```
 
 **Response 200**
+```json
 { "success": true, "data": { "savedAt": "2025-01-15T10:30:00Z" }, "message": null }
+```
 
 ---
 
 ### PUT `/stories/{slug}/chapters/{number}/content` 🔒
-Manual save. Writes to S3 + creates version record. Author only.
+Manual save. Persists HTML to DB and creates a version record. Author only.
 
 **Request**
-{ "content": { ...QuillDelta... }, "wordCount": 1240 }
+```json
+{ "content": "<p>Once upon a time in a land far away...</p>" }
+```
 
 **Response 200**
+```json
 { "success": true, "data": { "versionNumber": 4, "wordCount": 1240, "savedAt": "..." }, "message": null }
+```
 
 **Errors**
-| 400 | BAD_REQUEST     | content is not valid Quill Delta |
-| 403 | FORBIDDEN       | Not the chapter author           |
+| Status | Code        | When                       |
+|--------|-------------|----------------------------|
+| 403    | FORBIDDEN   | Not the chapter author     |
 
 ---
 
@@ -612,32 +621,36 @@ Manual save. Writes to S3 + creates version record. Author only.
 List version history for a chapter. Author only.
 
 **Response 200**
+```json
 {
-"success": true,
-"data": [
-{ "versionNumber": 4, "wordCount": 1240, "isPublished": true, "createdAt": "..." },
-{ "versionNumber": 3, "wordCount": 980,  "isPublished": false, "createdAt": "..." }
-],
-"message": null
+  "success": true,
+  "data": [
+    { "versionNumber": 4, "wordCount": 1240, "isPublished": true, "createdAt": "..." },
+    { "versionNumber": 3, "wordCount": 980,  "isPublished": false, "createdAt": "..." }
+  ],
+  "message": null
 }
+```
 
 ---
 
 ### GET `/stories/{slug}/chapters/{number}/versions/{versionNumber}` 🔒
-Fetch content of a specific version from S3. Author only.
+Fetch HTML content of a specific version from DB. Author only.
 
 **Response 200**
+```json
 {
-"success": true,
-"data": {
-"versionNumber": 3,
-"content": { ...QuillDelta... },
-"wordCount": 980,
-"isPublished": false,
-"createdAt": "..."
-},
-"message": null
+  "success": true,
+  "data": {
+    "versionNumber": 3,
+    "content": "<p>Once upon a time...</p>",
+    "wordCount": 980,
+    "isPublished": false,
+    "createdAt": "..."
+  },
+  "message": null
 }
+```
 
 ---
 

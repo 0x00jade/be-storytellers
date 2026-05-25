@@ -1,8 +1,13 @@
 package com.demo.bestorytellers.chapter.service;
 
+import com.demo.bestorytellers.chapter.dto.AutosaveRequest;
+import com.demo.bestorytellers.chapter.dto.AutosaveResponse;
+import com.demo.bestorytellers.chapter.dto.ChapterResponse;
 import com.demo.bestorytellers.chapter.dto.CreateChapterRequest;
 import com.demo.bestorytellers.chapter.dto.PublishRequest;
 import com.demo.bestorytellers.chapter.dto.PublishResponse;
+import com.demo.bestorytellers.chapter.dto.SaveContentRequest;
+import com.demo.bestorytellers.chapter.dto.SaveContentResponse;
 import com.demo.bestorytellers.chapter.entity.Chapter;
 import com.demo.bestorytellers.chapter.entity.ChapterStatus;
 import com.demo.bestorytellers.chapter.entity.ChapterVersion;
@@ -11,8 +16,7 @@ import com.demo.bestorytellers.chapter.repository.ChapterVersionRepository;
 import com.demo.bestorytellers.common.exception.ForbiddenException;
 import com.demo.bestorytellers.common.exception.ResourceNotFoundException;
 import com.demo.bestorytellers.common.exception.ValidationException;
-import com.demo.bestorytellers.common.util.DeltaUtil;
-import com.demo.bestorytellers.common.util.S3Util;
+import com.demo.bestorytellers.common.util.HtmlUtil;
 import com.demo.bestorytellers.notification.service.NotificationService;
 import com.demo.bestorytellers.story.entity.Story;
 import com.demo.bestorytellers.story.entity.StoryStatus;
@@ -52,15 +56,14 @@ class ChapterServiceTest {
     @Mock ChapterRepository chapterRepository;
     @Mock ChapterVersionRepository versionRepository;
     @Mock StoryRepository storyRepository;
-    @Mock S3Util s3Util;
-    @Mock DeltaUtil deltaUtil;
+    @Mock HtmlUtil htmlUtil;
     @Mock RedisTemplate<String, String> redisTemplate;
     @Mock NotificationService notificationService;
     @Mock ValueOperations<String, String> valueOps;
 
     private ChapterService service() {
         return new ChapterService(chapterRepository, versionRepository, storyRepository,
-            s3Util, deltaUtil, redisTemplate, notificationService);
+            htmlUtil, redisTemplate, notificationService);
     }
 
     private Story mockStory(UUID ownerId, String slug) {
@@ -108,6 +111,99 @@ class ChapterServiceTest {
         service().create("test-slug", userId, new CreateChapterRequest("Ch 3"));
 
         verify(chapterRepository).save(any(Chapter.class));
+    }
+
+    // --- autosave ---
+
+    @Test
+    void autosave_whenNotOwner_thenThrowsForbidden() {
+        UUID ownerId = UUID.randomUUID();
+        Story story = mockStory(ownerId, "test-slug");
+        when(storyRepository.findBySlug("test-slug")).thenReturn(Optional.of(story));
+
+        assertThrows(ForbiddenException.class, () ->
+            service().autosave("test-slug", 1, UUID.randomUUID(),
+                new AutosaveRequest("<p>draft</p>")));
+    }
+
+    @Test
+    void autosave_whenOwner_thenUpdatesContentWithoutVersion() {
+        UUID userId = UUID.randomUUID();
+        Story story = mockStory(userId, "test-slug");
+        when(storyRepository.findBySlug("test-slug")).thenReturn(Optional.of(story));
+        Chapter chapter = mock(Chapter.class);
+        when(chapterRepository.findByStoryIdAndChapterNumber(any(), eq(1)))
+            .thenReturn(Optional.of(chapter));
+        when(htmlUtil.sanitize("<p>draft</p>")).thenReturn("<p>draft</p>");
+        when(chapterRepository.save(chapter)).thenReturn(chapter);
+
+        AutosaveResponse response = service().autosave("test-slug", 1, userId,
+            new AutosaveRequest("<p>draft</p>"));
+
+        verify(chapter).setContent("<p>draft</p>");
+        verify(chapterRepository).save(chapter);
+        verify(versionRepository, never()).save(any());
+        assertNotNull(response.savedAt());
+    }
+
+    // --- saveContent ---
+
+    @Test
+    void saveContent_whenNotOwner_thenThrowsForbidden() {
+        UUID ownerId = UUID.randomUUID();
+        Story story = mockStory(ownerId, "test-slug");
+        when(storyRepository.findBySlug("test-slug")).thenReturn(Optional.of(story));
+
+        assertThrows(ForbiddenException.class, () ->
+            service().saveContent("test-slug", 1, UUID.randomUUID(),
+                new SaveContentRequest("<p>content</p>")));
+    }
+
+    @Test
+    void saveContent_whenOwner_thenSavesContentAndCreatesVersion() {
+        UUID userId = UUID.randomUUID();
+        Story story = mockStory(userId, "test-slug");
+        when(storyRepository.findBySlug("test-slug")).thenReturn(Optional.of(story));
+        Chapter chapter = mock(Chapter.class);
+        when(chapter.getStatus()).thenReturn(ChapterStatus.DRAFT);
+        when(chapter.getWordCount()).thenReturn(0);
+        when(chapterRepository.findByStoryIdAndChapterNumber(any(), eq(1)))
+            .thenReturn(Optional.of(chapter));
+        when(htmlUtil.sanitize("<p>content</p>")).thenReturn("<p>content</p>");
+        when(htmlUtil.countWords("<p>content</p>")).thenReturn(1);
+        when(versionRepository.findMaxVersionNumber(any())).thenReturn(0);
+        when(chapterRepository.save(chapter)).thenReturn(chapter);
+
+        SaveContentResponse response = service().saveContent("test-slug", 1, userId,
+            new SaveContentRequest("<p>content</p>"));
+
+        verify(chapter).setContent("<p>content</p>");
+        verify(chapter).setWordCount(1);
+        verify(versionRepository).save(any(ChapterVersion.class));
+        assertEquals(1, response.versionNumber());
+        assertEquals(1, response.wordCount());
+    }
+
+    @Test
+    void saveContent_whenPublishedChapter_thenAdjustsStoryWordCount() {
+        UUID userId = UUID.randomUUID();
+        UUID storyId = UUID.randomUUID();
+        Story story = mockStory(userId, "test-slug");
+        when(story.getId()).thenReturn(storyId);
+        when(storyRepository.findBySlug("test-slug")).thenReturn(Optional.of(story));
+        Chapter chapter = mock(Chapter.class);
+        when(chapter.getStatus()).thenReturn(ChapterStatus.PUBLISHED);
+        when(chapter.getWordCount()).thenReturn(100);
+        when(chapterRepository.findByStoryIdAndChapterNumber(any(), eq(1)))
+            .thenReturn(Optional.of(chapter));
+        when(htmlUtil.sanitize(any())).thenReturn("<p>new</p>");
+        when(htmlUtil.countWords(any())).thenReturn(150);
+        when(versionRepository.findMaxVersionNumber(any())).thenReturn(1);
+        when(chapterRepository.save(chapter)).thenReturn(chapter);
+
+        service().saveContent("test-slug", 1, userId, new SaveContentRequest("<p>new</p>"));
+
+        verify(storyRepository).adjustWordCount(storyId, 50);
     }
 
     // --- publish ---
@@ -278,7 +374,6 @@ class ChapterServiceTest {
             eq(storyId), eq(ChapterStatus.PUBLISHED), any()))
             .thenReturn(emptyPage);
 
-        // Anonymous user (null userId)
         service().list("test-slug", null, null, 0, 20);
 
         verify(chapterRepository).findByStoryIdAndStatusOrderByChapterNumberAsc(

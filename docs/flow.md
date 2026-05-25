@@ -308,26 +308,22 @@ POST /api/v1/stories/{slug}/chapters
 POST .../autosave
 │
 ├─ Load chapter, ownership check
-├─ Upload Delta JSON to S3: drafts/{chapterId}/{userId}.json (overwrite, no versioning)
-├─ [CACHE] SET draft:{chapterId}:{userId} = "exists", TTL 24h
+├─ Sanitize HTML with HtmlUtil.sanitize() (jsoup Safelist.relaxed)
+├─ UPDATE chapters SET content = sanitizedHtml, updated_at = NOW()
 └─ Return { savedAt }
+    (no version record created)
 ```
 ### 4.3 Manual Save Chapter Content
 ```
 PUT .../content
 │
 ├─ Load chapter, ownership check
-├─ Validate content is valid Quill Delta structure
-├─ Calculate wordCount from Delta plain text
-├─ Upload to S3: content/{chapterId}/published.json (overwrites current)
+├─ Sanitize HTML with HtmlUtil.sanitize()
+├─ Calculate wordCount from HTML plain text with HtmlUtil.countWords()
 ├─ Get next versionNumber = SELECT MAX(version_number) + 1 FROM chapter_versions
-├─ Upload snapshot to S3: content/{chapterId}/v{versionNumber}.json
-├─ INSERT into chapter_versions
-├─ UPDATE chapters SET content_url, word_count, updated_at
-├─ UPDATE stories.word_count if chapter is PUBLISHED
-├─ [CACHE] DELETE chapter:{chapterId}
-├─ [CACHE] DELETE draft:{chapterId}:{userId}
-├─ Delete S3 draft: drafts/{chapterId}/{userId}.json
+├─ INSERT into chapter_versions (content = sanitizedHtml, wordCount, versionNumber)
+├─ UPDATE chapters SET content = sanitizedHtml, word_count = wordCount, updated_at = NOW()
+├─ UPDATE stories.word_count if chapter is PUBLISHED (delta = newWordCount - oldWordCount)
 └─ Return { versionNumber, wordCount, savedAt }
 ```
 
@@ -372,20 +368,18 @@ POST /api/v1/stories/{slug}/chapters/{number}/publish
 
 ---
 
-### 4.5 Read Chapter 
+### 4.5 Read Chapter
 
 ```
 GET /api/v1/stories/{slug}/chapters/{number}
   │
-  ├─ [CACHE] GET chapter:{chapterId}
-  │     [HIT] → return cached Delta JSON, skip S3
+  ├─ Load story by slug, load chapter by (storyId, chapterNumber)
   │
-  ├─ [MISS] Fetch from S3: chapters.content_url
-  │     [S3 ERROR] → throw InternalException
+  ├─ [IF chapter is DRAFT and currentUser != author] → throw ForbiddenException
   │
-  ├─ [CACHE] SET chapter:{chapterId} = Delta JSON, TTL 30 min
   ├─ [CACHE] INCR story:views:{storyId}
-  └─ Return ChapterResponse with content
+  │
+  └─ Return ChapterResponse with chapter.content (HTML from DB)
 ```
 
 ---
@@ -590,19 +584,14 @@ POST /api/v1/me/library/{listId}/stories/{storyId}
 ```
 @Scheduled(cron = "0 0 2 * * *")
 │
-├─ SELECT chapter_id, version_number FROM chapter_versions
-│     WHERE is_published = false
-│     AND version_number NOT IN (
-│       SELECT version_number FROM chapter_versions
-│       WHERE chapter_id = cv.chapter_id
-│       ORDER BY version_number DESC LIMIT 50
-│     )
+├─ Load all draft (is_published = false) chapter_versions
 │
-├─ For each excess version:
-│     DELETE S3 object: content/{chapterId}/v{n}.json
-│     DELETE FROM chapter_versions WHERE id = ?
+├─ Group by chapter_id, sort by version_number DESC
 │
-└─ Log: "Purged {n} old versions"
+├─ For each chapter with more than 50 draft versions:
+│     DELETE FROM chapter_versions for excess rows (beyond top 50)
+│
+└─ Log: "Purged {n} old draft chapter versions"
 ```
 ---
 

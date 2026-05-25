@@ -20,8 +20,7 @@ import com.demo.bestorytellers.chapter.repository.ChapterVersionRepository;
 import com.demo.bestorytellers.common.exception.ForbiddenException;
 import com.demo.bestorytellers.common.exception.ResourceNotFoundException;
 import com.demo.bestorytellers.common.exception.ValidationException;
-import com.demo.bestorytellers.common.util.DeltaUtil;
-import com.demo.bestorytellers.common.util.S3Util;
+import com.demo.bestorytellers.common.util.HtmlUtil;
 import com.demo.bestorytellers.notification.service.NotificationService;
 import com.demo.bestorytellers.story.entity.Story;
 import com.demo.bestorytellers.story.entity.StoryStatus;
@@ -33,7 +32,6 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -45,23 +43,20 @@ public class ChapterService {
     private final ChapterRepository chapterRepository;
     private final ChapterVersionRepository versionRepository;
     private final StoryRepository storyRepository;
-    private final S3Util s3Util;
-    private final DeltaUtil deltaUtil;
+    private final HtmlUtil htmlUtil;
     private final RedisTemplate<String, String> redisTemplate;
     private final NotificationService notificationService;
 
     public ChapterService(ChapterRepository chapterRepository,
                           ChapterVersionRepository versionRepository,
                           StoryRepository storyRepository,
-                          S3Util s3Util,
-                          DeltaUtil deltaUtil,
+                          HtmlUtil htmlUtil,
                           RedisTemplate<String, String> redisTemplate,
                           NotificationService notificationService) {
         this.chapterRepository = chapterRepository;
         this.versionRepository = versionRepository;
         this.storyRepository = storyRepository;
-        this.s3Util = s3Util;
-        this.deltaUtil = deltaUtil;
+        this.htmlUtil = htmlUtil;
         this.redisTemplate = redisTemplate;
         this.notificationService = notificationService;
     }
@@ -72,7 +67,7 @@ public class ChapterService {
         int nextNumber = chapterRepository.findMaxChapterNumber(story.getId()) + 1;
         Chapter chapter = new Chapter(story, request.title(), nextNumber);
         Chapter saved = chapterRepository.save(chapter);
-        return toResponse(saved, story.getSlug(), null);
+        return toResponse(saved, story.getSlug());
     }
 
     @Transactional(readOnly = true)
@@ -87,18 +82,8 @@ public class ChapterService {
             throw new ForbiddenException("Chapter is not published");
         }
 
-        String content = null;
-        if (chapter.getContentUrl() != null) {
-            String cacheKey = "chapter:" + chapter.getId();
-            content = redisTemplate.opsForValue().get(cacheKey);
-            if (content == null) {
-                content = s3Util.fetchContent(chapter.getContentUrl());
-                redisTemplate.opsForValue().set(cacheKey, content, Duration.ofMinutes(30));
-            }
-        }
         redisTemplate.opsForValue().increment("story:views:" + story.getId());
-
-        return toResponse(chapter, slug, content);
+        return toResponse(chapter, slug);
     }
 
     @Transactional
@@ -108,18 +93,15 @@ public class ChapterService {
         if (request.title() != null) {
             chapter.setTitle(request.title());
         }
-        return toResponse(chapterRepository.save(chapter), slug, null);
+        return toResponse(chapterRepository.save(chapter), slug);
     }
 
     @Transactional
     public AutosaveResponse autosave(String slug, int number, UUID userId, AutosaveRequest request) {
         Story story = loadStoryAndCheckOwnership(slug, userId);
         Chapter chapter = loadChapter(story.getId(), number);
-        String sanitized = deltaUtil.validateAndSanitize(request.content());
-        String s3Key = "drafts/" + chapter.getId() + "/" + userId + ".json";
-        s3Util.uploadContent(s3Key, sanitized);
-        redisTemplate.opsForValue().set(
-            "draft:" + chapter.getId() + ":" + userId, "exists", Duration.ofHours(24));
+        chapter.setContent(htmlUtil.sanitize(request.content()));
+        chapterRepository.save(chapter);
         return new AutosaveResponse(Instant.now());
     }
 
@@ -129,22 +111,16 @@ public class ChapterService {
         Story story = loadStoryAndCheckOwnership(slug, userId);
         Chapter chapter = loadChapter(story.getId(), number);
 
-        String sanitized = deltaUtil.validateAndSanitize(request.content());
-        int wordCount = deltaUtil.countWords(sanitized);
+        String sanitized = htmlUtil.sanitize(request.content());
+        int wordCount = htmlUtil.countWords(sanitized);
 
-        String publishedKey = "content/" + chapter.getId() + "/published.json";
         int nextVersion = versionRepository.findMaxVersionNumber(chapter.getId()) + 1;
-        String versionKey = "content/" + chapter.getId() + "/v" + nextVersion + ".json";
-
-        s3Util.uploadContent(publishedKey, sanitized);
-        s3Util.uploadContent(versionKey, sanitized);
-
-        ChapterVersion version = new ChapterVersion(chapter, nextVersion, versionKey, wordCount, userId);
+        ChapterVersion version = new ChapterVersion(chapter, nextVersion, sanitized, wordCount, userId);
         versionRepository.save(version);
 
         boolean wasPublished = chapter.getStatus() == ChapterStatus.PUBLISHED;
         int oldWordCount = chapter.getWordCount();
-        chapter.setContentUrl(publishedKey);
+        chapter.setContent(sanitized);
         chapter.setWordCount(wordCount);
         chapterRepository.save(chapter);
 
@@ -153,14 +129,6 @@ public class ChapterService {
             if (delta != 0) {
                 storyRepository.adjustWordCount(story.getId(), delta);
             }
-        }
-
-        redisTemplate.delete("chapter:" + chapter.getId());
-        redisTemplate.delete("draft:" + chapter.getId() + ":" + userId);
-        try {
-            s3Util.deleteObject("drafts/" + chapter.getId() + "/" + userId + ".json");
-        } catch (Exception ignored) {
-            // Draft may not exist
         }
 
         return new SaveContentResponse(nextVersion, wordCount, Instant.now());
@@ -218,7 +186,6 @@ public class ChapterService {
         }
         chapterRepository.delete(chapter);
         redisTemplate.delete("story:" + slug);
-        redisTemplate.delete("chapter:" + chapter.getId());
     }
 
     @Transactional(readOnly = true)
@@ -239,8 +206,7 @@ public class ChapterService {
         ChapterVersion version = versionRepository
             .findByChapterIdAndVersionNumber(chapter.getId(), versionNumber)
             .orElseThrow(() -> new ResourceNotFoundException("Version not found: " + versionNumber));
-        String content = s3Util.fetchContent(version.getContentUrl());
-        return new VersionContentResponse(version.getVersionNumber(), content,
+        return new VersionContentResponse(version.getVersionNumber(), version.getContent(),
             version.getWordCount(), version.isPublished(), version.getCreatedAt());
     }
 
@@ -275,10 +241,10 @@ public class ChapterService {
             .orElseThrow(() -> new ResourceNotFoundException("Chapter not found: " + number));
     }
 
-    private ChapterResponse toResponse(Chapter chapter, String storySlug, String content) {
+    private ChapterResponse toResponse(Chapter chapter, String storySlug) {
         return new ChapterResponse(
             chapter.getId(), storySlug, chapter.getChapterNumber(), chapter.getTitle(),
-            content, chapter.getWordCount(), chapter.getStatus().name(),
+            chapter.getContent(), chapter.getWordCount(), chapter.getStatus().name(),
             chapter.getPublishedAt(), chapter.getCreatedAt(), chapter.getUpdatedAt());
     }
 }

@@ -20,8 +20,8 @@ public class ChapterVersion {
     @Column(name = "version_number", nullable = false)
     private int versionNumber;
 
-    @Column(name = "content_url", nullable = false, columnDefinition = "TEXT")
-    private String contentUrl;
+    @Column(name = "content", columnDefinition = "TEXT")
+    private String content;
 
     @Column(name = "word_count", nullable = false)
     private int wordCount;
@@ -37,11 +37,11 @@ public class ChapterVersion {
 
     protected ChapterVersion() {}
 
-    public ChapterVersion(Chapter chapter, int versionNumber, String contentUrl,
+    public ChapterVersion(Chapter chapter, int versionNumber, String content,
                           int wordCount, UUID savedBy) {
         this.chapter = chapter;
         this.versionNumber = versionNumber;
-        this.contentUrl = contentUrl;
+        this.content = content;
         this.wordCount = wordCount;
         this.savedBy = savedBy;
         this.createdAt = Instant.now();
@@ -50,7 +50,7 @@ public class ChapterVersion {
     public UUID getId() { return id; }
     public Chapter getChapter() { return chapter; }
     public int getVersionNumber() { return versionNumber; }
-    public String getContentUrl() { return contentUrl; }
+    public String getContent() { return content; }
     public int getWordCount() { return wordCount; }
     public boolean isPublished() { return published; }
     public UUID getSavedBy() { return savedBy; }

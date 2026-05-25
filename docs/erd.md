@@ -131,11 +131,9 @@ Ordered content units of a story. Each chapter has its own publish lifecycle.
 | id             | UUID          | PK, default gen_random_uuid()         |                                               |
 | story_id       | UUID          | NOT NULL, FK → stories.id             | CASCADE DELETE                                |
 | title          | VARCHAR(255)  | NOT NULL                              |                                               |
-| content_url     | TEXT          | NULL → NOT NULL after migration  | S3 key: content/{chapterId}/published.json |
-| content_format  | VARCHAR(20)   | NOT NULL, default 'DELTA'        | Enum: DELTA, HTML (HTML for migrated legacy rows) |
-| word_count      | INT           | NOT NULL, default 0              | Calculated from Delta plain text on save |
+| content        | TEXT          | NULL                                  | HTML string; NULL until first save            |
 | chapter_number | INT           | NOT NULL                              | 1-based, unique per story                     |
-| word_count     | INT           | NOT NULL, default 0                   | Calculated on save                            |
+| word_count     | INT           | NOT NULL, default 0                   | Calculated from HTML plain text on save       |
 | status         | VARCHAR(20)   | NOT NULL, default 'DRAFT'             | Enum: DRAFT, PUBLISHED, SCHEDULED             |
 | published_at   | TIMESTAMPTZ   | NULL                                  | Set when status → PUBLISHED                   |
 | created_at     | TIMESTAMPTZ   | NOT NULL, default NOW()               |                                               |
@@ -157,11 +155,11 @@ CREATE INDEX idx_chapters_status    ON chapters(status, published_at);
 - `chapter_number` is assigned by service as `MAX(chapter_number) + 1` per story — never by client
 - Min 100 words required to publish (enforced in service)
 - Deleting a published chapter decrements `stories.chapter_count` and `stories.word_count`
-- `content` must be sanitized with jsoup before persist — strip all script/iframe tags
+- `content` is sanitized with jsoup (`Safelist.relaxed()`) before every save
+- `word_count` derived from HTML plain text: `Jsoup.parse(html).text()`, count whitespace-delimited tokens
 - SCHEDULED chapters are published by a `@Scheduled` job that checks `published_at <= NOW()`
-- content_url is set on first manual save — NULL means chapter has never been saved beyond creation
-- word_count derived from Delta plain text: strip all formatting ops, count whitespace-delimited words
-- Never store raw HTML — always Quill Delta JSON in S3
+- Autosave updates `content` column only — no version record created
+- Manual save (`PUT /content`) updates `content` column AND creates a `chapter_versions` record
 ---
 
 ### `chapter_versions`
@@ -173,7 +171,7 @@ Immutable version history. One row per save or publish event.
 | id             | UUID        | PK, default gen_random_uuid()            |                                      |
 | chapter_id     | UUID        | NOT NULL, FK → chapters.id CASCADE       |                                      |
 | version_number | INT         | NOT NULL                                 | 1-based, increments per chapter      |
-| content_url    | TEXT        | NOT NULL                                 | S3 key: content/{chapterId}/v{n}.json|
+| content        | TEXT        | NULL                                     | HTML snapshot at time of save        |
 | word_count     | INT         | NOT NULL                                 |                                      |
 | is_published   | BOOLEAN     | NOT NULL, default false                  | true = this version went live        |
 | saved_by       | UUID        | FK → users.id SET NULL                   |                                      |
