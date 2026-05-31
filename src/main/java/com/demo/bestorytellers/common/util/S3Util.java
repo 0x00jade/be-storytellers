@@ -19,10 +19,33 @@ public class S3Util {
 
     private final S3Client s3Client;
     private final String bucket;
+    private final String region;
 
-    public S3Util(S3Client s3Client, @Value("${app.aws.s3.bucket}") String bucket) {
+    public S3Util(S3Client s3Client,
+                  @Value("${app.aws.s3.bucket}") String bucket,
+                  @Value("${app.aws.region}") String region) {
         this.s3Client = s3Client;
         this.bucket = bucket;
+        this.region = region;
+    }
+
+    public String uploadImage(String key, byte[] bytes, String contentType) {
+        s3Client.putObject(
+            PutObjectRequest.builder()
+                .bucket(bucket)
+                .key(key)
+                .contentType(contentType)
+                .contentLength((long) bytes.length)
+                .build(),
+            RequestBody.fromBytes(bytes)
+        );
+        log.debug("Uploaded image S3 object: {}", key);
+        return "https://" + bucket + ".s3." + region + ".amazonaws.com/" + key;
+    }
+
+    public String extractKey(String url) {
+        String prefix = "https://" + bucket + ".s3." + region + ".amazonaws.com/";
+        return url != null && url.startsWith(prefix) ? url.substring(prefix.length()) : null;
     }
 
     public void uploadContent(String key, String content) {

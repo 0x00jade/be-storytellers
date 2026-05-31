@@ -3,6 +3,7 @@ package com.demo.bestorytellers.story.controller;
 import com.demo.bestorytellers.auth.security.UserPrincipal;
 import com.demo.bestorytellers.common.dto.ApiResponse;
 import com.demo.bestorytellers.common.dto.PageResponse;
+import com.demo.bestorytellers.story.dto.CoverImageResponse;
 import com.demo.bestorytellers.story.dto.CreateStoryRequest;
 import com.demo.bestorytellers.story.dto.ReplaceTagsRequest;
 import com.demo.bestorytellers.story.dto.StoryCardResponse;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -86,6 +88,16 @@ public class StoryController {
     ) {
         storyService.delete(slug, principal.getUserId());
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/stories/{slug}/cover")
+    public ResponseEntity<ApiResponse<CoverImageResponse>> uploadCover(
+        @PathVariable String slug,
+        @AuthenticationPrincipal UserPrincipal principal,
+        @RequestParam("file") MultipartFile file
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+            storyService.uploadCover(slug, principal.getUserId(), file)));
     }
 
     @PutMapping("/stories/{slug}/tags")

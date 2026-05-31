@@ -4,6 +4,7 @@ import com.demo.bestorytellers.common.exception.ConflictException;
 import com.demo.bestorytellers.common.exception.ForbiddenException;
 import com.demo.bestorytellers.common.exception.ResourceNotFoundException;
 import com.demo.bestorytellers.common.exception.ValidationException;
+import com.demo.bestorytellers.common.util.S3Util;
 import com.demo.bestorytellers.social.repository.FollowRepository;
 import com.demo.bestorytellers.story.dto.CreateStoryRequest;
 import com.demo.bestorytellers.story.dto.StoryDetailResponse;
@@ -47,10 +48,11 @@ class StoryServiceTest {
     @Mock UserRepository userRepository;
     @Mock FollowRepository followRepository;
     @Mock RedisTemplate<String, String> redisTemplate;
+    @Mock S3Util s3Util;
 
     private StoryService service() {
         return new StoryService(storyRepository, tagRepository, userRepository,
-            followRepository, redisTemplate);
+            followRepository, redisTemplate, s3Util);
     }
 
     // --- create ---

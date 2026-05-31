@@ -2,6 +2,7 @@ package com.demo.bestorytellers.user.controller;
 
 import com.demo.bestorytellers.auth.security.UserPrincipal;
 import com.demo.bestorytellers.common.dto.ApiResponse;
+import com.demo.bestorytellers.user.dto.AvatarResponse;
 import com.demo.bestorytellers.user.dto.FollowResponse;
 import com.demo.bestorytellers.user.dto.UpdateUserRequest;
 import com.demo.bestorytellers.user.dto.UserResponse;
@@ -10,6 +11,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.UUID;
 
@@ -21,6 +23,14 @@ public class UserController {
 
     public UserController(UserService userService) {
         this.userService = userService;
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<ApiResponse<UserResponse>> getMe(
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        UUID currentUserId = principal != null ? principal.getUserId() : null;
+        return ResponseEntity.ok(ApiResponse.ok(userService.getByUsername(principal.getUsername(), currentUserId)));
     }
 
     @GetMapping("/{username}")
@@ -39,6 +49,15 @@ public class UserController {
     ) {
         return ResponseEntity.ok(ApiResponse.ok(
             userService.updateProfile(principal.getUserId(), request)));
+    }
+
+    @PostMapping("/me/avatar")
+    public ResponseEntity<ApiResponse<AvatarResponse>> uploadAvatar(
+        @AuthenticationPrincipal UserPrincipal principal,
+        @RequestParam("file") MultipartFile file
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+            userService.uploadAvatar(principal.getUserId(), file)));
     }
 
     @PostMapping("/{username}/follow")

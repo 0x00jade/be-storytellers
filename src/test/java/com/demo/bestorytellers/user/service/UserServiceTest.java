@@ -3,6 +3,7 @@ package com.demo.bestorytellers.user.service;
 import com.demo.bestorytellers.common.exception.ConflictException;
 import com.demo.bestorytellers.common.exception.ResourceNotFoundException;
 import com.demo.bestorytellers.common.exception.ValidationException;
+import com.demo.bestorytellers.common.util.S3Util;
 import com.demo.bestorytellers.social.entity.Follow;
 import com.demo.bestorytellers.social.repository.FollowRepository;
 import com.demo.bestorytellers.user.dto.FollowResponse;
@@ -37,6 +38,9 @@ class UserServiceTest {
     @Mock
     private RedisTemplate<String, String> redisTemplate;
 
+    @Mock
+    private S3Util s3Util;
+
     private UserService userService;
 
     private final UUID userId = UUID.randomUUID();
@@ -46,7 +50,7 @@ class UserServiceTest {
 
     @BeforeEach
     void setUp() {
-        userService = new UserService(userRepository, followRepository, redisTemplate);
+        userService = new UserService(userRepository, followRepository, redisTemplate, s3Util);
 
         user = new User("user@example.com", "currentuser", "Current User", null, "GOOGLE", "sub1");
         ReflectionTestUtils.setField(user, "id", userId);

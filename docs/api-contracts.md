@@ -55,6 +55,62 @@ Redirect to Google OAuth consent screen. No request body. Handled by Spring Secu
 
 ---
 
+### POST `/auth/verify-token`
+Exchange a Google OAuth **access token** for app-level JWT tokens. Use this after a successful Google Sign-In on the frontend to get tokens for all subsequent API calls.
+
+**Request**
+```json
+{ "accessToken": "ya29.a0AfB_..." }
+```
+
+> The `accessToken` field must contain the Google **access token** (the `ya29.xxx` token returned by Google Sign-In, not the ID token).
+
+**Response 200**
+```json
+{
+  "success": true,
+  "data": {
+    "accessToken": "eyJhbGciOiJIUzI1NiJ9...",
+    "refreshToken": "550e8400-e29b-41d4-a716-446655440000",
+    "tokenType": "Bearer",
+    "expiresIn": 900
+  },
+  "message": null
+}
+```
+
+| Field        | Description                                                         |
+|--------------|---------------------------------------------------------------------|
+| accessToken  | Short-lived JWT. Include in `Authorization: Bearer {accessToken}` header |
+| refreshToken | Long-lived UUID. Store securely; use to get a new access token      |
+| tokenType    | Always `"Bearer"`                                                   |
+| expiresIn    | Access token lifetime in seconds                                    |
+
+**Errors**
+| Status | Code         | When                                         |
+|--------|--------------|----------------------------------------------|
+| 400    | BAD_REQUEST  | `accessToken` field is missing or blank      |
+| 401    | UNAUTHORIZED | Google rejected the token (invalid/expired)  |
+| 401    | UNAUTHORIZED | Google account email is not verified         |
+| 401    | UNAUTHORIZED | Account has been deactivated                 |
+
+**Frontend flow**
+```js
+// 1. Sign in with Google (e.g. Google Identity Services)
+const { access_token } = await googleSignIn();
+
+// 2. Exchange for app tokens
+const res = await fetch('/api/v1/auth/verify-token', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ accessToken: access_token })
+});
+const { data } = await res.json();
+// store data.accessToken and data.refreshToken
+```
+
+---
+
 ### POST `/auth/refresh`
 Exchange a refresh token for a new access token.
 
@@ -106,7 +162,7 @@ Get the currently authenticated user.
     "email": "user@gmail.com",
     "username": "johndoe",
     "displayName": "John Doe",
-    "avatarUrl": "https://s3.amazonaws.com/...",
+    "avatarUrl": "https://storytellers-content.s3.us-east-1.amazonaws.com/avatars/...",
     "bio": "I write fantasy stories",
     "role": "AUTHOR",
     "createdAt": "2025-01-01T00:00:00Z"
@@ -135,7 +191,7 @@ Get a public user profile.
     "id": "uuid",
     "username": "johndoe",
     "displayName": "John Doe",
-    "avatarUrl": "https://s3.amazonaws.com/...",
+    "avatarUrl": "https://storytellers-content.s3.us-east-1.amazonaws.com/avatars/...",
     "bio": "I write fantasy stories",
     "role": "AUTHOR",
     "followerCount": 120,
@@ -196,7 +252,7 @@ Upload profile avatar. Multipart form data.
 ```json
 {
   "success": true,
-  "data": { "avatarUrl": "https://s3.amazonaws.com/avatars/uuid.jpg" },
+  "data": { "avatarUrl": "https://storytellers-content.s3.us-east-1.amazonaws.com/avatars/{userId}/{uuid}.jpg" },
   "message": null
 }
 ```
@@ -206,6 +262,19 @@ Upload profile avatar. Multipart form data.
 |--------|------------------|------------------------------|
 | 400    | BAD_REQUEST      | File type not JPEG/PNG       |
 | 400    | BAD_REQUEST      | File exceeds 5MB             |
+| 401    | UNAUTHORIZED     | Not authenticated            |
+
+**Frontend example**
+```js
+const form = new FormData();
+form.append('file', fileInput.files[0]); // JPEG or PNG, max 5MB
+
+const res = await fetch('/api/v1/users/me/avatar', {
+  method: 'POST',
+  headers: { 'Authorization': 'Bearer ' + accessToken },
+  body: form  // Do NOT set Content-Type manually — browser sets multipart boundary
+});
+```
 
 ---
 
@@ -230,7 +299,7 @@ List published stories by an author. Paginated.
         "slug": "my-story-a1b2c3d4",
         "title": "My Story",
         "description": "A tale of...",
-        "coverImageUrl": "https://s3.amazonaws.com/...",
+        "coverImageUrl": "https://storytellers-content.s3.us-east-1.amazonaws.com/covers/...",
         "author": { "id": "uuid", "username": "johndoe", "displayName": "John Doe", "avatarUrl": "..." },
         "status": "ONGOING",
         "maturityRating": "EVERYONE",
@@ -428,7 +497,7 @@ Delete a story and all its chapters. Author only.
 ---
 
 ### POST `/stories/{slug}/cover` 🔒
-Upload story cover image. Author only. Multipart form data.
+Upload story cover image. Author only. Multipart form data. Replaces any existing cover.
 
 **Request** — `multipart/form-data`
 | Field | Type | Required | Notes                 |
@@ -437,7 +506,31 @@ Upload story cover image. Author only. Multipart form data.
 
 **Response 200**
 ```json
-{ "success": true, "data": { "coverImageUrl": "https://s3.amazonaws.com/covers/uuid.jpg" }, "message": null }
+{
+  "success": true,
+  "data": { "coverImageUrl": "https://storytellers-content.s3.us-east-1.amazonaws.com/covers/{storyId}/{uuid}.jpg" },
+  "message": null
+}
+```
+
+**Errors**
+| Status | Code            | When                          |
+|--------|-----------------|-------------------------------|
+| 400    | BAD_REQUEST     | File type not JPEG/PNG        |
+| 400    | BAD_REQUEST     | File exceeds 10MB             |
+| 403    | FORBIDDEN       | Not the story author          |
+| 404    | STORY_NOT_FOUND | Story slug does not exist     |
+
+**Frontend example**
+```js
+const form = new FormData();
+form.append('file', fileInput.files[0]); // JPEG or PNG, max 10MB
+
+const res = await fetch(`/api/v1/stories/${slug}/cover`, {
+  method: 'POST',
+  headers: { 'Authorization': 'Bearer ' + accessToken },
+  body: form
+});
 ```
 
 ---

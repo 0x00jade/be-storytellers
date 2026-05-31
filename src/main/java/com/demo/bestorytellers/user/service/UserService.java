@@ -4,8 +4,10 @@ import com.demo.bestorytellers.common.dto.PageResponse;
 import com.demo.bestorytellers.common.exception.ConflictException;
 import com.demo.bestorytellers.common.exception.ResourceNotFoundException;
 import com.demo.bestorytellers.common.exception.ValidationException;
+import com.demo.bestorytellers.common.util.S3Util;
 import com.demo.bestorytellers.social.entity.Follow;
 import com.demo.bestorytellers.social.repository.FollowRepository;
+import com.demo.bestorytellers.user.dto.AvatarResponse;
 import com.demo.bestorytellers.user.dto.FollowResponse;
 import com.demo.bestorytellers.user.dto.UpdateUserRequest;
 import com.demo.bestorytellers.user.dto.UserCardResponse;
@@ -16,21 +18,29 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class UserService {
 
+    private static final long MAX_AVATAR_BYTES = 5L * 1024 * 1024;
+    private static final Set<String> ALLOWED_IMAGE_TYPES = Set.of("image/jpeg", "image/png");
+
     private final UserRepository userRepository;
     private final FollowRepository followRepository;
     private final RedisTemplate<String, String> redisTemplate;
+    private final S3Util s3Util;
 
     public UserService(UserRepository userRepository, FollowRepository followRepository,
-                       RedisTemplate<String, String> redisTemplate) {
+                       RedisTemplate<String, String> redisTemplate, S3Util s3Util) {
         this.userRepository = userRepository;
         this.followRepository = followRepository;
         this.redisTemplate = redisTemplate;
+        this.s3Util = s3Util;
     }
 
     @Transactional(readOnly = true)
@@ -105,6 +115,38 @@ public class UserService {
         return PageResponse.from(paged.map(u -> new UserCardResponse(
             u.getId(), u.getUsername(), u.getDisplayName(),
             u.getAvatarUrl(), u.getBio(), 0, 0, false)));
+    }
+
+    @Transactional
+    public AvatarResponse uploadAvatar(UUID userId, MultipartFile file) {
+        if (!ALLOWED_IMAGE_TYPES.contains(file.getContentType())) {
+            throw new ValidationException("File must be JPEG or PNG");
+        }
+        if (file.getSize() > MAX_AVATAR_BYTES) {
+            throw new ValidationException("File exceeds maximum size of 5MB");
+        }
+
+        User user = userRepository.findById(userId)
+            .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        String oldKey = s3Util.extractKey(user.getAvatarUrl());
+        if (oldKey != null) {
+            s3Util.deleteObject(oldKey);
+        }
+
+        String ext = file.getContentType().equals("image/png") ? "png" : "jpg";
+        String key = "avatars/" + userId + "/" + UUID.randomUUID() + "." + ext;
+        byte[] bytes;
+        try {
+            bytes = file.getBytes();
+        } catch (IOException e) {
+            throw new ValidationException("Failed to read uploaded file");
+        }
+        String url = s3Util.uploadImage(key, bytes, file.getContentType());
+
+        user.setAvatarUrl(url);
+        userRepository.save(user);
+        return new AvatarResponse(url);
     }
 
     private UserResponse toUserResponse(User user, long followers, long following, boolean isFollowing) {
