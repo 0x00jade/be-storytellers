@@ -43,9 +43,6 @@ import java.util.stream.Collectors;
 @Service
 public class StoryService {
 
-    private static final long MAX_COVER_BYTES = 10L * 1024 * 1024;
-    private static final Set<String> ALLOWED_IMAGE_TYPES = Set.of("image/jpeg", "image/png");
-
     private final StoryRepository storyRepository;
     private final TagRepository tagRepository;
     private final UserRepository userRepository;
@@ -78,13 +75,7 @@ public class StoryService {
             }
         }
 
-        List<Tag> tags = Collections.emptyList();
-        if (request.tagIds() != null && !request.tagIds().isEmpty()) {
-            tags = tagRepository.findAllByIdIn(request.tagIds());
-            if (tags.size() != request.tagIds().size()) {
-                throw new ValidationException("One or more tag IDs not found");
-            }
-        }
+        List<Tag> tags = resolveOrCreateTags(request.tagNames());
 
         MaturityRating rating = parseMaturityRating(request.maturityRating());
         Story story = new Story(author, request.title(), slug, request.description(),
@@ -136,9 +127,8 @@ public class StoryService {
             story.setMaturityRating(parseMaturityRating(request.maturityRating()));
         }
         if (request.language() != null) story.setLanguage(request.language());
-        if (request.tagIds() != null) {
-            List<Tag> tags = tagRepository.findAllByIdIn(request.tagIds());
-            story.setTags(new HashSet<>(tags));
+        if (request.tagNames() != null) {
+            story.setTags(new HashSet<>(resolveOrCreateTags(request.tagNames())));
         }
 
         Story saved = storyRepository.save(story);
@@ -159,25 +149,21 @@ public class StoryService {
 
     @Transactional
     public CoverImageResponse uploadCover(String slug, UUID userId, MultipartFile file) {
-        if (!ALLOWED_IMAGE_TYPES.contains(file.getContentType())) {
+        if (!Set.of("image/jpeg", "image/png").contains(file.getContentType())) {
             throw new ValidationException("File must be JPEG or PNG");
         }
-        if (file.getSize() > MAX_COVER_BYTES) {
+        if (file.getSize() > 10L * 1024 * 1024) {
             throw new ValidationException("File exceeds maximum size of 10MB");
         }
 
-        Story story = storyRepository.findBySlug(slug)
-            .orElseThrow(() -> new ResourceNotFoundException("Story not found: " + slug));
-        if (!story.getAuthor().getId().equals(userId)) {
-            throw new ForbiddenException("You do not own this story");
-        }
+        Story story = loadOwnedStory(slug, userId);
 
         String oldKey = s3Util.extractKey(story.getCoverImageUrl());
         if (oldKey != null) {
             s3Util.deleteObject(oldKey);
         }
 
-        String ext = file.getContentType().equals("image/png") ? "png" : "jpg";
+        String ext = "image/png".equals(file.getContentType()) ? "png" : "jpg";
         String key = "covers/" + story.getId() + "/" + UUID.randomUUID() + "." + ext;
         byte[] bytes;
         try {
@@ -191,6 +177,25 @@ public class StoryService {
         storyRepository.save(story);
         redisTemplate.delete("story:" + slug);
         return new CoverImageResponse(url);
+    }
+
+    @Transactional
+    public CoverImageResponse updateCover(String slug, UUID userId, String coverImageUrl) {
+        if (s3Util.extractKey(coverImageUrl) == null) {
+            throw new ValidationException("coverImageUrl must be a valid S3 URL for this bucket");
+        }
+
+        Story story = loadOwnedStory(slug, userId);
+
+        String oldKey = s3Util.extractKey(story.getCoverImageUrl());
+        if (oldKey != null && !oldKey.equals(s3Util.extractKey(coverImageUrl))) {
+            s3Util.deleteObject(oldKey);
+        }
+
+        story.setCoverImageUrl(coverImageUrl);
+        storyRepository.save(story);
+        redisTemplate.delete("story:" + slug);
+        return new CoverImageResponse(coverImageUrl);
     }
 
     @Transactional(readOnly = true)
@@ -221,20 +226,9 @@ public class StoryService {
     }
 
     @Transactional
-    public List<TagResponse> replaceTags(String slug, UUID userId, List<Integer> tagIds) {
-        Story story = storyRepository.findBySlug(slug)
-            .orElseThrow(() -> new ResourceNotFoundException("Story not found: " + slug));
-        if (!story.getAuthor().getId().equals(userId)) {
-            throw new ForbiddenException("You do not own this story");
-        }
-        if (tagIds != null && tagIds.size() > 10) {
-            throw new ValidationException("Max 10 tags allowed");
-        }
-        List<Integer> ids = tagIds != null ? tagIds : Collections.emptyList();
-        List<Tag> tags = ids.isEmpty() ? Collections.emptyList() : tagRepository.findAllByIdIn(ids);
-        if (tags.size() != ids.size()) {
-            throw new ValidationException("One or more tag IDs not found");
-        }
+    public List<TagResponse> replaceTags(String slug, UUID userId, List<String> tagNames) {
+        Story story = loadOwnedStory(slug, userId);
+        List<Tag> tags = resolveOrCreateTags(tagNames);
         story.setTags(new HashSet<>(tags));
         storyRepository.save(story);
         redisTemplate.delete("story:" + slug);
@@ -246,6 +240,27 @@ public class StoryService {
     @Transactional
     public void applyViewCountDelta(UUID storyId, long delta) {
         storyRepository.incrementViewCount(storyId, delta);
+    }
+
+    private List<Tag> resolveOrCreateTags(List<String> tagNames) {
+        if (tagNames == null || tagNames.isEmpty()) return Collections.emptyList();
+        if (tagNames.size() > 10) throw new ValidationException("Max 10 tags allowed");
+        return tagNames.stream()
+            .map(name -> {
+                String normalized = name.toLowerCase().trim();
+                return tagRepository.findByName(normalized)
+                    .orElseGet(() -> tagRepository.save(new Tag(normalized, SlugUtil.tagSlug(normalized))));
+            })
+            .toList();
+    }
+
+    private Story loadOwnedStory(String slug, UUID userId) {
+        Story story = storyRepository.findBySlug(slug)
+            .orElseThrow(() -> new ResourceNotFoundException("Story not found: " + slug));
+        if (!story.getAuthor().getId().equals(userId)) {
+            throw new ForbiddenException("You do not own this story");
+        }
+        return story;
     }
 
     private void validateStatusTransition(StoryStatus current, StoryStatus next, int chapterCount) {

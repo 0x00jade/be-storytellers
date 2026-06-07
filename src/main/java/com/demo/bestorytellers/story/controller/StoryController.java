@@ -7,6 +7,7 @@ import com.demo.bestorytellers.story.dto.CoverImageResponse;
 import com.demo.bestorytellers.story.dto.CreateStoryRequest;
 import com.demo.bestorytellers.story.dto.ReplaceTagsRequest;
 import com.demo.bestorytellers.story.dto.StoryCardResponse;
+import com.demo.bestorytellers.story.dto.UpdateCoverRequest;
 import com.demo.bestorytellers.story.dto.StoryDetailResponse;
 import com.demo.bestorytellers.story.dto.TagResponse;
 import com.demo.bestorytellers.story.dto.UpdateStoryRequest;
@@ -100,6 +101,17 @@ public class StoryController {
             storyService.uploadCover(slug, principal.getUserId(), file)));
     }
 
+    @PatchMapping("/stories/{slug}/cover")
+    public ResponseEntity<ApiResponse<CoverImageResponse>> updateCover(
+        @PathVariable String slug,
+        @AuthenticationPrincipal UserPrincipal principal,
+        @Valid @RequestBody UpdateCoverRequest request
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+            storyService.updateCover(slug, principal.getUserId(), request.coverImageUrl())));
+    }
+    
+
     @PutMapping("/stories/{slug}/tags")
     public ResponseEntity<ApiResponse<List<TagResponse>>> replaceTags(
         @PathVariable String slug,
@@ -107,7 +119,7 @@ public class StoryController {
         @Valid @RequestBody ReplaceTagsRequest request
     ) {
         return ResponseEntity.ok(ApiResponse.ok(
-            storyService.replaceTags(slug, principal.getUserId(), request.tagIds())));
+            storyService.replaceTags(slug, principal.getUserId(), request.tagNames())));
     }
 
     @GetMapping("/users/{username}/stories")

@@ -16,6 +16,7 @@ java {
 
 repositories {
     mavenCentral()
+    google()
 }
 
 dependencies {
@@ -46,6 +47,8 @@ dependencies {
     testImplementation 'org.testcontainers:postgresql:1.19.8'
     testImplementation 'org.testcontainers:junit-jupiter:1.19.8'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    implementation 'com.google.api-client:google-api-client:2.7.0'
 }
 
 tasks.named('test') {

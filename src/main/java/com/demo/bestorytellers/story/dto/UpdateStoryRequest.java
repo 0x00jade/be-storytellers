@@ -11,5 +11,5 @@ public record UpdateStoryRequest(
     String visibility,
     String maturityRating,
     String language,
-    @Size(max = 10) List<Integer> tagIds
+    @Size(max = 10) List<String> tagNames
 ) {}

@@ -9,8 +9,13 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.Map;
 
 @Component
 public class S3Util {
@@ -18,15 +23,36 @@ public class S3Util {
     private static final Logger log = LoggerFactory.getLogger(S3Util.class);
 
     private final S3Client s3Client;
+    private final S3Presigner s3Presigner;
     private final String bucket;
     private final String region;
 
     public S3Util(S3Client s3Client,
+                  S3Presigner s3Presigner,
                   @Value("${app.aws.s3.bucket}") String bucket,
                   @Value("${app.aws.region}") String region) {
         this.s3Client = s3Client;
+        this.s3Presigner = s3Presigner;
         this.bucket = bucket;
         this.region = region;
+    }
+
+    public String generatePresignedUploadUrl(String key, String contentType, Duration expiry) {
+        PutObjectPresignRequest presignRequest = PutObjectPresignRequest.builder()
+            .signatureDuration(expiry)
+            .putObjectRequest(PutObjectRequest.builder()
+                .bucket(bucket)
+                .key(key)
+                .contentType(contentType)
+                .build())
+            .build();
+        PresignedPutObjectRequest presigned = s3Presigner.presignPutObject(presignRequest);
+        log.debug("Generated presigned upload URL for key: {}", key);
+        return presigned.url().toExternalForm();
+    }
+
+    public String buildObjectUrl(String key) {
+        return "https://" + bucket + ".s3." + region + ".amazonaws.com/" + key;
     }
 
     public String uploadImage(String key, byte[] bytes, String contentType) {
@@ -40,7 +66,7 @@ public class S3Util {
             RequestBody.fromBytes(bytes)
         );
         log.debug("Uploaded image S3 object: {}", key);
-        return "https://" + bucket + ".s3." + region + ".amazonaws.com/" + key;
+        return buildObjectUrl(key);
     }
 
     public String extractKey(String url) {

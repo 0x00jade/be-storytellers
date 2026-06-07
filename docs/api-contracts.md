@@ -394,7 +394,7 @@ Create a new story. Requires AUTHOR role.
   "description": "In a world where magic is outlawed...",
   "language": "en",
   "maturityRating": "EVERYONE",
-  "tagIds": [1, 3]
+  "tagNames": ["fantasy", "adventure"]
 }
 ```
 
@@ -405,7 +405,7 @@ Create a new story. Requires AUTHOR role.
 | description   | `@Size(max = 2000)`                           |
 | language      | `@NotBlank`, valid ISO 639-1 code             |
 | maturityRating| `@NotNull`, one of: EVERYONE, TEEN, MATURE    |
-| tagIds        | Max 10 tag IDs, each must exist               |
+| tagNames      | Max 10 tag names. Unknown tags are created automatically (lowercased) |
 
 **Response 201**
 ```json
@@ -497,7 +497,7 @@ Delete a story and all its chapters. Author only.
 ---
 
 ### POST `/stories/{slug}/cover` 🔒
-Upload story cover image. Author only. Multipart form data. Replaces any existing cover.
+Upload story cover image via multipart. Author only. Replaces any existing cover.
 
 **Request** — `multipart/form-data`
 | Field | Type | Required | Notes                 |
@@ -514,24 +514,43 @@ Upload story cover image. Author only. Multipart form data. Replaces any existin
 ```
 
 **Errors**
-| Status | Code            | When                          |
-|--------|-----------------|-------------------------------|
-| 400    | BAD_REQUEST     | File type not JPEG/PNG        |
-| 400    | BAD_REQUEST     | File exceeds 10MB             |
-| 403    | FORBIDDEN       | Not the story author          |
-| 404    | STORY_NOT_FOUND | Story slug does not exist     |
+| Status | Code             | When                          |
+|--------|------------------|-------------------------------|
+| 400    | BAD_REQUEST      | File type not JPEG/PNG        |
+| 400    | BAD_REQUEST      | File exceeds 10MB             |
+| 403    | FORBIDDEN        | Not the story author          |
+| 404    | STORY_NOT_FOUND  | Story slug does not exist     |
 
-**Frontend example**
-```js
-const form = new FormData();
-form.append('file', fileInput.files[0]); // JPEG or PNG, max 10MB
+---
 
-const res = await fetch(`/api/v1/stories/${slug}/cover`, {
-  method: 'POST',
-  headers: { 'Authorization': 'Bearer ' + accessToken },
-  body: form
-});
+### PATCH `/stories/{slug}/cover` 🔒
+Update story cover using a URL already uploaded to S3. Author only. Use this after a direct S3 upload via `POST /upload/presign`.
+
+**Request**
+```json
+{ "coverImageUrl": "https://storytellers-content.s3.us-east-1.amazonaws.com/covers/{storyId}/{uuid}.jpg" }
 ```
+
+| Field         | Type   | Required | Notes                                    |
+|---------------|--------|----------|------------------------------------------|
+| coverImageUrl | String | Yes      | Must be a valid S3 URL for this bucket   |
+
+**Response 200**
+```json
+{
+  "success": true,
+  "data": { "coverImageUrl": "https://storytellers-content.s3.us-east-1.amazonaws.com/covers/{storyId}/{uuid}.jpg" },
+  "message": null
+}
+```
+
+**Errors**
+| Status | Code             | When                                      |
+|--------|------------------|-------------------------------------------|
+| 400    | VALIDATION_ERROR | `coverImageUrl` is blank                  |
+| 400    | BAD_REQUEST      | URL is not from this bucket               |
+| 403    | FORBIDDEN        | Not the story author                      |
+| 404    | STORY_NOT_FOUND  | Story slug does not exist                 |
 
 ---
 
@@ -540,13 +559,13 @@ Replace all tags on a story. Author only.
 
 **Request**
 ```json
-{ "tagIds": [1, 2, 5] }
+{ "tagNames": ["fantasy", "adventure", "sci-fi"] }
 ```
 
 **Validation**
-| Field  | Rules              |
-|--------|--------------------|
-| tagIds | Max 10, all must exist |
+| Field    | Rules                                                             |
+|----------|-------------------------------------------------------------------|
+| tagNames | Max 10 names. Unknown tags are created automatically (lowercased) |
 
 **Response 200**
 ```json
@@ -1183,7 +1202,98 @@ Mark a single notification as read.
 
 ---
 
-## 9. Tags (Admin)
+## 9. Upload
+
+### POST `/upload/presign` 🔒
+Generate a presigned S3 URL so the frontend can upload an image directly to S3 without routing the file through the backend.
+
+**Request**
+```json
+{
+  "uploadType": "AVATAR",
+  "contentType": "image/jpeg",
+  "fileSizeBytes": 2097152,
+  "referenceId": null
+}
+```
+
+| Field         | Type   | Required    | Notes                                                       |
+|---------------|--------|-------------|-------------------------------------------------------------|
+| uploadType    | Enum   | Yes         | `AVATAR` or `STORY_COVER`                                   |
+| contentType   | String | Yes         | `image/jpeg` or `image/png`                                 |
+| fileSizeBytes | Long   | Yes         | File size in bytes. Must be 1–5242880 (max 5 MB)            |
+| referenceId   | UUID   | Conditional | Required when `uploadType = STORY_COVER` (the story UUID)   |
+
+**Response 200**
+```json
+{
+  "success": true,
+  "data": {
+    "uploadUrl": "https://storytellers-content.s3.us-east-1.amazonaws.com/avatars/...?X-Amz-Signature=...",
+    "objectUrl": "https://storytellers-content.s3.us-east-1.amazonaws.com/avatars/{userId}/{uuid}.jpg",
+    "key": "avatars/{userId}/{uuid}.jpg",
+    "expiresIn": 300
+  },
+  "message": null
+}
+```
+
+| Field     | Description                                                              |
+|-----------|--------------------------------------------------------------------------|
+| uploadUrl | Presigned PUT URL. Valid for `expiresIn` seconds                        |
+| objectUrl | Final public URL of the uploaded object — save this to the DB after upload |
+| key       | S3 object key                                                            |
+| expiresIn | Presigned URL lifetime in seconds (300 = 5 minutes)                     |
+
+**Errors**
+| Status | Code             | When                                              |
+|--------|------------------|---------------------------------------------------|
+| 400    | VALIDATION_ERROR | `contentType` is not `image/jpeg` or `image/png`  |
+| 400    | VALIDATION_ERROR | `fileSizeBytes` exceeds 5 MB (5242880 bytes)      |
+| 400    | BAD_REQUEST      | `referenceId` missing for `STORY_COVER`           |
+| 401    | UNAUTHORIZED     | Not authenticated                                 |
+
+**Frontend flow**
+```js
+// 1. Request presigned URL (BE validates size here)
+const { data } = await fetch('/api/v1/upload/presign', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer ' + accessToken,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    uploadType: 'AVATAR',        // or 'STORY_COVER'
+    contentType: file.type,      // 'image/jpeg' or 'image/png'
+    fileSizeBytes: file.size,    // BE rejects if > 5MB
+    referenceId: null            // storyId UUID for STORY_COVER
+  })
+}).then(r => r.json());
+
+// 2. PUT file directly to S3 (no auth header needed)
+await fetch(data.uploadUrl, {
+  method: 'PUT',
+  headers: { 'Content-Type': file.type },
+  body: file
+});
+
+// 3. Use data.objectUrl to update avatar or story cover via PATCH
+```
+
+**S3 CORS requirement**  
+Your S3 bucket must have a CORS rule allowing `PUT` from your frontend origin:
+```json
+[{
+  "AllowedOrigins": ["https://yourdomain.com"],
+  "AllowedMethods": ["PUT"],
+  "AllowedHeaders": ["Content-Type"],
+  "MaxAgeSeconds": 3000
+}]
+```
+
+---
+
+## 10. Tags (Admin)
 
 ### GET `/tags`
 List all tags.
