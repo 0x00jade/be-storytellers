@@ -696,15 +696,22 @@ Update chapter content or title. Author only.
 
 ### POST `/stories/{slug}/chapters/{number}/autosave` 🔒
 Save draft HTML content to the DB without creating a version record. Author only.
+If the chapter with the given `{number}` does not exist, a new chapter is created automatically (assigned the next sequential number) and the content is saved to it.
 
 **Request**
 ```json
-{ "content": "<p>Once upon a time...</p>" }
+{ "title": "Optional Title", "content": "<p>Once upon a time...</p>", "wordCount": 42 }
 ```
+
+| Field     | Type    | Required | Notes                                                               |
+|-----------|---------|----------|---------------------------------------------------------------------|
+| title     | String  | No       | Used only when creating a new chapter. Defaults to "Chapter {n}"   |
+| content   | String  | Yes      | HTML content                                                        |
+| wordCount | Integer | Yes      | Word count calculated from the HTML content on the client side      |
 
 **Response 200**
 ```json
-{ "success": true, "data": { "savedAt": "2025-01-15T10:30:00Z" }, "message": null }
+{ "success": true, "data": { "chapterId": "uuid", "chapterNumber": 3, "savedAt": "2025-01-15T10:30:00Z" }, "message": null }
 ```
 
 ---

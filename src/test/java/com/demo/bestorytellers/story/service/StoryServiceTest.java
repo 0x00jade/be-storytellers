@@ -68,16 +68,16 @@ class StoryServiceTest {
     }
 
     @Test
-    void create_whenTagIdMissing_thenThrowsValidation() {
+    void create_whenTooManyTagNames_thenThrowsValidation() {
         UUID userId = UUID.randomUUID();
         User user = mock(User.class);
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         when(storyRepository.existsBySlug(any())).thenReturn(false);
-        when(tagRepository.findAllByIdIn(List.of(999))).thenReturn(Collections.emptyList());
 
+        List<String> tooManyTags = List.of("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k");
         assertThrows(ValidationException.class, () ->
             service().create(userId, new CreateStoryRequest(
-                "My Story", null, "en", "EVERYONE", List.of(999))));
+                "My Story", null, "en", "EVERYONE", tooManyTags)));
     }
 
     @Test
@@ -94,7 +94,6 @@ class StoryServiceTest {
         when(saved.getMaturityRating()).thenReturn(MaturityRating.EVERYONE);
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         when(storyRepository.existsBySlug(any())).thenReturn(false);
-        when(tagRepository.findAllByIdIn(any())).thenReturn(Collections.emptyList());
         when(storyRepository.save(any())).thenReturn(saved);
 
         StoryDetailResponse result = service().create(userId,
@@ -110,7 +109,6 @@ class StoryServiceTest {
         User user = mock(User.class);
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         when(storyRepository.existsBySlug(any())).thenReturn(false);
-        when(tagRepository.findAllByIdIn(any())).thenReturn(Collections.emptyList());
 
         assertThrows(ValidationException.class, () ->
             service().create(userId, new CreateStoryRequest(
@@ -246,24 +244,34 @@ class StoryServiceTest {
         when(story.getAuthor()).thenReturn(owner);
         when(storyRepository.findBySlug("test-slug")).thenReturn(Optional.of(story));
 
-        List<Integer> tooManyTags = List.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11);
+        List<String> tooManyTags = List.of("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k");
 
         assertThrows(ValidationException.class, () ->
             service().replaceTags("test-slug", userId, tooManyTags));
     }
 
     @Test
-    void replaceTags_whenTagIdNotFound_thenThrowsValidation() {
+    void replaceTags_whenOwner_thenReplacesTagsSuccessfully() {
         UUID userId = UUID.randomUUID();
         User owner = mock(User.class);
         when(owner.getId()).thenReturn(userId);
         Story story = mock(Story.class);
         when(story.getAuthor()).thenReturn(owner);
+        when(story.getSlug()).thenReturn("test-slug");
         when(storyRepository.findBySlug("test-slug")).thenReturn(Optional.of(story));
-        when(tagRepository.findAllByIdIn(List.of(999))).thenReturn(Collections.emptyList());
 
-        assertThrows(ValidationException.class, () ->
-            service().replaceTags("test-slug", userId, List.of(999)));
+        Tag tag = mock(Tag.class);
+        when(tag.getId()).thenReturn(1);
+        when(tag.getName()).thenReturn("fantasy");
+        when(tag.getSlug()).thenReturn("fantasy");
+        when(tagRepository.findByName("fantasy")).thenReturn(Optional.of(tag));
+        when(storyRepository.save(story)).thenReturn(story);
+
+        var result = service().replaceTags("test-slug", userId, List.of("fantasy"));
+
+        assertEquals(1, result.size());
+        assertEquals("fantasy", result.get(0).name());
+        verify(storyRepository).save(story);
     }
 
     // --- getBySlug ---

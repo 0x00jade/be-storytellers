@@ -123,26 +123,55 @@ class ChapterServiceTest {
 
         assertThrows(ForbiddenException.class, () ->
             service().autosave("test-slug", 1, UUID.randomUUID(),
-                new AutosaveRequest("<p>draft</p>")));
+                new AutosaveRequest(null, "<p>draft</p>")));
     }
 
     @Test
-    void autosave_whenOwner_thenUpdatesContentWithoutVersion() {
+    void autosave_whenChapterExists_thenUpdatesContentWithoutVersion() {
         UUID userId = UUID.randomUUID();
         Story story = mockStory(userId, "test-slug");
         when(storyRepository.findBySlug("test-slug")).thenReturn(Optional.of(story));
         Chapter chapter = mock(Chapter.class);
+        when(chapter.getId()).thenReturn(UUID.randomUUID());
+        when(chapter.getChapterNumber()).thenReturn(1);
         when(chapterRepository.findByStoryIdAndChapterNumber(any(), eq(1)))
             .thenReturn(Optional.of(chapter));
         when(htmlUtil.sanitize("<p>draft</p>")).thenReturn("<p>draft</p>");
         when(chapterRepository.save(chapter)).thenReturn(chapter);
 
         AutosaveResponse response = service().autosave("test-slug", 1, userId,
-            new AutosaveRequest("<p>draft</p>"));
+            new AutosaveRequest(null, "<p>draft</p>"));
 
         verify(chapter).setContent("<p>draft</p>");
         verify(chapterRepository).save(chapter);
         verify(versionRepository, never()).save(any());
+        assertNotNull(response.savedAt());
+        assertEquals(1, response.chapterNumber());
+    }
+
+    @Test
+    void autosave_whenChapterNotFound_thenCreatesChapterAndSavesContent() {
+        UUID userId = UUID.randomUUID();
+        UUID storyId = UUID.randomUUID();
+        Story story = mockStory(userId, "test-slug");
+        when(story.getId()).thenReturn(storyId);
+        when(storyRepository.findBySlug("test-slug")).thenReturn(Optional.of(story));
+        when(chapterRepository.findByStoryIdAndChapterNumber(storyId, 99))
+            .thenReturn(Optional.empty());
+        when(chapterRepository.findMaxChapterNumber(storyId)).thenReturn(2);
+
+        Chapter created = mock(Chapter.class);
+        when(created.getId()).thenReturn(UUID.randomUUID());
+        when(created.getChapterNumber()).thenReturn(3);
+        when(chapterRepository.save(any(Chapter.class))).thenReturn(created);
+        when(htmlUtil.sanitize("<p>new</p>")).thenReturn("<p>new</p>");
+
+        AutosaveResponse response = service().autosave("test-slug", 99, userId,
+            new AutosaveRequest("My Title", "<p>new</p>"));
+
+        verify(chapterRepository, org.mockito.Mockito.times(2)).save(any(Chapter.class));
+        assertNotNull(response.chapterId());
+        assertEquals(3, response.chapterNumber());
         assertNotNull(response.savedAt());
     }
 

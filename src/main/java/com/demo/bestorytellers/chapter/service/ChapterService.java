@@ -99,10 +99,17 @@ public class ChapterService {
     @Transactional
     public AutosaveResponse autosave(String slug, int number, UUID userId, AutosaveRequest request) {
         Story story = loadStoryAndCheckOwnership(slug, userId);
-        Chapter chapter = loadChapter(story.getId(), number);
+        Chapter chapter = chapterRepository.findByStoryIdAndChapterNumber(story.getId(), number)
+            .orElseGet(() -> {
+                int nextNumber = chapterRepository.findMaxChapterNumber(story.getId()) + 1;
+                String title = (request.title() != null && !request.title().isBlank())
+                    ? request.title() : "Chapter " + nextNumber;
+                return chapterRepository.save(new Chapter(story, title, nextNumber));
+            });
         chapter.setContent(htmlUtil.sanitize(request.content()));
-        chapterRepository.save(chapter);
-        return new AutosaveResponse(Instant.now());
+        chapter.setWordCount((request.wordCount()));
+        Chapter saved = chapterRepository.save(chapter);
+        return new AutosaveResponse(saved.getId(), saved.getChapterNumber(), Instant.now());
     }
 
     @Transactional

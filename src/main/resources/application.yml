@@ -28,7 +28,7 @@ spring:
         registration:
           google:
             client-id: ${GOOGLE_CLIENT_ID:354500739862-49ihelflu36lmkp7dpnek031ais3fuid.apps.googleusercontent.com}
-            client-secret: ${GOOGLE_CLIENT_SECRET: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}
+            client-secret: ${GOOGLE_CLIENT_SECRET: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}
             scope:
               - email
               - profile
@@ -46,9 +46,9 @@ app:
     access-token-expiry: 172800
     refresh-token-expiry: 604800
   aws:
-    region: ${AWS_REGION:us-east-1}
+    region: ${AWS_REGION:ap-southeast-1}
     s3:
-      bucket: ${S3_BUCKET:storytellers-content}
+      bucket: ${S3_BUCKET:projectdemo01}
   cors:
     allowed-origin: ${CORS_ALLOWED_ORIGIN:http://localhost:3000}
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
