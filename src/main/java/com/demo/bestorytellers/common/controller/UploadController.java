@@ -50,6 +50,12 @@ public class UploadController {
                 }
                 yield "covers/%s/%s.%s".formatted(request.referenceId(), UUID.randomUUID(), ext);
             }
+            case CHAPTER_IMAGE -> {
+                if (request.referenceId() == null) {
+                    throw new ValidationException("referenceId (chapterId) is required for CHAPTER_IMAGE");
+                }
+                yield "chapter-images/%s/%s.%s".formatted(request.referenceId(), UUID.randomUUID(), ext);
+            }
         };
     }
 }

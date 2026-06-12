@@ -1226,10 +1226,10 @@ Generate a presigned S3 URL so the frontend can upload an image directly to S3 w
 
 | Field         | Type   | Required    | Notes                                                       |
 |---------------|--------|-------------|-------------------------------------------------------------|
-| uploadType    | Enum   | Yes         | `AVATAR` or `STORY_COVER`                                   |
+| uploadType    | Enum   | Yes         | `AVATAR`, `STORY_COVER`, or `CHAPTER_IMAGE`                 |
 | contentType   | String | Yes         | `image/jpeg` or `image/png`                                 |
 | fileSizeBytes | Long   | Yes         | File size in bytes. Must be 1–5242880 (max 5 MB)            |
-| referenceId   | UUID   | Conditional | Required when `uploadType = STORY_COVER` (the story UUID)   |
+| referenceId   | UUID   | Conditional | Required for `STORY_COVER` (storyId) and `CHAPTER_IMAGE` (chapterId) |
 
 **Response 200**
 ```json
@@ -1257,7 +1257,7 @@ Generate a presigned S3 URL so the frontend can upload an image directly to S3 w
 |--------|------------------|---------------------------------------------------|
 | 400    | VALIDATION_ERROR | `contentType` is not `image/jpeg` or `image/png`  |
 | 400    | VALIDATION_ERROR | `fileSizeBytes` exceeds 5 MB (5242880 bytes)      |
-| 400    | BAD_REQUEST      | `referenceId` missing for `STORY_COVER`           |
+| 400    | BAD_REQUEST      | `referenceId` missing for `STORY_COVER` or `CHAPTER_IMAGE` |
 | 401    | UNAUTHORIZED     | Not authenticated                                 |
 
 **Frontend flow**
@@ -1270,10 +1270,10 @@ const { data } = await fetch('/api/v1/upload/presign', {
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
-    uploadType: 'AVATAR',        // or 'STORY_COVER'
+    uploadType: 'AVATAR',        // or 'STORY_COVER' or 'CHAPTER_IMAGE'
     contentType: file.type,      // 'image/jpeg' or 'image/png'
     fileSizeBytes: file.size,    // BE rejects if > 5MB
-    referenceId: null            // storyId UUID for STORY_COVER
+    referenceId: null            // storyId for STORY_COVER, chapterId for CHAPTER_IMAGE
   })
 }).then(r => r.json());
 
@@ -1284,7 +1284,7 @@ await fetch(data.uploadUrl, {
   body: file
 });
 
-// 3. Use data.objectUrl to update avatar or story cover via PATCH
+// 3. Use data.objectUrl to update avatar/story cover via PATCH, or embed in chapter HTML
 ```
 
 **S3 CORS requirement**  

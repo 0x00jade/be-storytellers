@@ -107,7 +107,7 @@ public class ChapterService {
                 return chapterRepository.save(new Chapter(story, title, nextNumber));
             });
         chapter.setContent(htmlUtil.sanitize(request.content()));
-        chapter.setWordCount((request.wordCount()));
+        chapter.setWordCount(request.wordCount());
         Chapter saved = chapterRepository.save(chapter);
         return new AutosaveResponse(saved.getId(), saved.getChapterNumber(), Instant.now());
     }
@@ -149,8 +149,8 @@ public class ChapterService {
         if (chapter.getStatus() == ChapterStatus.PUBLISHED) {
             throw new ValidationException("Chapter is already published");
         }
-        if (chapter.getWordCount() < 100) {
-            throw new ValidationException("Minimum 100 words required to publish");
+        if (chapter.getWordCount() < 10) {
+            throw new ValidationException("Minimum 10 words required to publish");
         }
 
         Instant publishAt = (request != null && request.publishAt() != null)

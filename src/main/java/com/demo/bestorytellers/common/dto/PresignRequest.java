@@ -27,6 +27,7 @@ public record PresignRequest(
 ) {
     public enum UploadType {
         AVATAR,
-        STORY_COVER
+        STORY_COVER,
+        CHAPTER_IMAGE
     }
 }
