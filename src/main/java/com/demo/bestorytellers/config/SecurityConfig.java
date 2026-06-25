@@ -57,6 +57,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/v1/users/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/search/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/tags").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/wallet").authenticated()
                 .anyRequest().authenticated()
             )
             .oauth2Login(oauth2 -> oauth2

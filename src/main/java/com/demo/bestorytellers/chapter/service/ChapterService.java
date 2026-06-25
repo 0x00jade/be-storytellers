@@ -23,6 +23,7 @@ import com.demo.bestorytellers.common.exception.ValidationException;
 import com.demo.bestorytellers.common.util.HtmlUtil;
 import com.demo.bestorytellers.notification.service.NotificationService;
 import com.demo.bestorytellers.story.entity.Story;
+import com.demo.bestorytellers.wallet.repository.ChapterPurchaseRepository;
 import com.demo.bestorytellers.story.entity.StoryStatus;
 import com.demo.bestorytellers.story.repository.StoryRepository;
 import org.springframework.data.domain.Page;
@@ -46,19 +47,22 @@ public class ChapterService {
     private final HtmlUtil htmlUtil;
     private final RedisTemplate<String, String> redisTemplate;
     private final NotificationService notificationService;
+    private final ChapterPurchaseRepository purchaseRepository;
 
     public ChapterService(ChapterRepository chapterRepository,
                           ChapterVersionRepository versionRepository,
                           StoryRepository storyRepository,
                           HtmlUtil htmlUtil,
                           RedisTemplate<String, String> redisTemplate,
-                          NotificationService notificationService) {
+                          NotificationService notificationService,
+                          ChapterPurchaseRepository purchaseRepository) {
         this.chapterRepository = chapterRepository;
         this.versionRepository = versionRepository;
         this.storyRepository = storyRepository;
         this.htmlUtil = htmlUtil;
         this.redisTemplate = redisTemplate;
         this.notificationService = notificationService;
+        this.purchaseRepository = purchaseRepository;
     }
 
     @Transactional
@@ -67,7 +71,7 @@ public class ChapterService {
         int nextNumber = chapterRepository.findMaxChapterNumber(story.getId()) + 1;
         Chapter chapter = new Chapter(story, request.title(), nextNumber);
         Chapter saved = chapterRepository.save(chapter);
-        return toResponse(saved, story.getSlug());
+        return toResponse(saved, story.getSlug(), true);
     }
 
     @Transactional(readOnly = true)
@@ -77,13 +81,29 @@ public class ChapterService {
         Chapter chapter = chapterRepository.findByStoryIdAndChapterNumber(story.getId(), number)
             .orElseThrow(() -> new ResourceNotFoundException("Chapter not found: " + number));
 
-        if (chapter.getStatus() == ChapterStatus.DRAFT
-                && !story.getAuthor().getId().equals(currentUserId)) {
+        boolean isAuthor = story.getAuthor().getId().equals(currentUserId);
+
+        if (chapter.getStatus() == ChapterStatus.DRAFT && !isAuthor) {
             throw new ForbiddenException("Chapter is not published");
         }
 
+        // Paywall: non-authors must have purchased a premium chapter
+        boolean purchased = false;
+        if (chapter.getPrice() != null && !isAuthor) {
+            if (currentUserId == null) {
+                throw new ForbiddenException("Login required to read premium chapters");
+            }
+            purchased = purchaseRepository.existsByIdUserIdAndIdChapterId(currentUserId, chapter.getId());
+            if (!purchased) {
+                // Return metadata but hide content so the FE can show a purchase prompt
+                return toLockedResponse(chapter, slug);
+            }
+        } else if (isAuthor) {
+            purchased = true;
+        }
+
         redisTemplate.opsForValue().increment("story:views:" + story.getId());
-        return toResponse(chapter, slug);
+        return toResponse(chapter, slug, purchased);
     }
 
     @Transactional
@@ -93,7 +113,12 @@ public class ChapterService {
         if (request.title() != null) {
             chapter.setTitle(request.title());
         }
-        return toResponse(chapterRepository.save(chapter), slug);
+        if (Boolean.TRUE.equals(request.removePrice())) {
+            chapter.setPrice(null);
+        } else if (request.price() != null) {
+            chapter.setPrice(request.price());
+        }
+        return toResponse(chapterRepository.save(chapter), slug, true);
     }
 
     @Transactional
@@ -248,10 +273,19 @@ public class ChapterService {
             .orElseThrow(() -> new ResourceNotFoundException("Chapter not found: " + number));
     }
 
-    private ChapterResponse toResponse(Chapter chapter, String storySlug) {
+    private ChapterResponse toResponse(Chapter chapter, String storySlug, boolean purchased) {
         return new ChapterResponse(
             chapter.getId(), storySlug, chapter.getChapterNumber(), chapter.getTitle(),
             chapter.getContent(), chapter.getWordCount(), chapter.getStatus().name(),
+            chapter.getPrice(), purchased,
+            chapter.getPublishedAt(), chapter.getCreatedAt(), chapter.getUpdatedAt());
+    }
+
+    private ChapterResponse toLockedResponse(Chapter chapter, String storySlug) {
+        return new ChapterResponse(
+            chapter.getId(), storySlug, chapter.getChapterNumber(), chapter.getTitle(),
+            null, chapter.getWordCount(), chapter.getStatus().name(),
+            chapter.getPrice(), false,
             chapter.getPublishedAt(), chapter.getCreatedAt(), chapter.getUpdatedAt());
     }
 }

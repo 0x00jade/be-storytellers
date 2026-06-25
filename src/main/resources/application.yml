@@ -43,7 +43,7 @@ spring:
 app:
   jwt:
     secret: ${JWT_SECRET:supersecretkey256bitminimumrequiredforsecurity}
-    access-token-expiry: 172800
+    access-token-expiry: 300
     refresh-token-expiry: 604800
   aws:
     region: ${AWS_REGION:ap-southeast-1}
@@ -52,6 +52,8 @@ app:
   cors:
     allowed-origin: ${CORS_ALLOWED_ORIGIN:http://localhost:3000}
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
+  payment:
+    mock: ${PAYMENT_MOCK:true}
 
 server:
   port: 8080

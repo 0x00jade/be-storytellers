@@ -19,6 +19,7 @@ import com.demo.bestorytellers.common.exception.ValidationException;
 import com.demo.bestorytellers.common.util.HtmlUtil;
 import com.demo.bestorytellers.notification.service.NotificationService;
 import com.demo.bestorytellers.story.entity.Story;
+import com.demo.bestorytellers.wallet.repository.ChapterPurchaseRepository;
 import com.demo.bestorytellers.story.entity.StoryStatus;
 import com.demo.bestorytellers.story.repository.StoryRepository;
 import com.demo.bestorytellers.user.entity.User;
@@ -60,10 +61,11 @@ class ChapterServiceTest {
     @Mock RedisTemplate<String, String> redisTemplate;
     @Mock NotificationService notificationService;
     @Mock ValueOperations<String, String> valueOps;
+    @Mock ChapterPurchaseRepository purchaseRepository;
 
     private ChapterService service() {
         return new ChapterService(chapterRepository, versionRepository, storyRepository,
-            htmlUtil, redisTemplate, notificationService);
+            htmlUtil, redisTemplate, notificationService, purchaseRepository);
     }
 
     private Story mockStory(UUID ownerId, String slug) {
@@ -123,7 +125,7 @@ class ChapterServiceTest {
 
         assertThrows(ForbiddenException.class, () ->
             service().autosave("test-slug", 1, UUID.randomUUID(),
-                new AutosaveRequest(null, "<p>draft</p>")));
+                new AutosaveRequest(null, "<p>draft</p>", 0)));
     }
 
     @Test
@@ -140,7 +142,7 @@ class ChapterServiceTest {
         when(chapterRepository.save(chapter)).thenReturn(chapter);
 
         AutosaveResponse response = service().autosave("test-slug", 1, userId,
-            new AutosaveRequest(null, "<p>draft</p>"));
+            new AutosaveRequest(null, "<p>draft</p>", 0));
 
         verify(chapter).setContent("<p>draft</p>");
         verify(chapterRepository).save(chapter);
@@ -167,7 +169,7 @@ class ChapterServiceTest {
         when(htmlUtil.sanitize("<p>new</p>")).thenReturn("<p>new</p>");
 
         AutosaveResponse response = service().autosave("test-slug", 99, userId,
-            new AutosaveRequest("My Title", "<p>new</p>"));
+            new AutosaveRequest("My Title", "<p>new</p>", 0));
 
         verify(chapterRepository, org.mockito.Mockito.times(2)).save(any(Chapter.class));
         assertNotNull(response.chapterId());
@@ -279,7 +281,7 @@ class ChapterServiceTest {
 
         Chapter chapter = mock(Chapter.class);
         when(chapter.getStatus()).thenReturn(ChapterStatus.DRAFT);
-        when(chapter.getWordCount()).thenReturn(50);
+        when(chapter.getWordCount()).thenReturn(5);  // below minimum of 10
         when(chapterRepository.findByStoryIdAndChapterNumber(any(), eq(1)))
             .thenReturn(Optional.of(chapter));
 
