@@ -307,6 +307,8 @@ List published stories by an author. Paginated.
         "viewCount": 1500,
         "chapterCount": 12,
         "wordCount": 48000,
+        "starCount": 42,
+        "isStarred": false,
         "tags": [{ "id": 1, "name": "Fantasy", "slug": "fantasy" }],
         "updatedAt": "2025-01-15T10:30:00Z",
         "createdAt": "2025-01-01T00:00:00Z"
@@ -425,6 +427,8 @@ Create a new story. Requires AUTHOR role.
     "viewCount": 0,
     "chapterCount": 0,
     "wordCount": 0,
+    "starCount": 0,
+    "isStarred": false,
     "tags": [{ "id": 1, "name": "Fantasy", "slug": "fantasy" }],
     "createdAt": "2025-01-15T10:30:00Z",
     "updatedAt": "2025-01-15T10:30:00Z"
@@ -578,6 +582,40 @@ Replace all tags on a story. Author only.
   "message": null
 }
 ```
+
+### POST `/stories/{slug}/star` 🔒
+Star a story. Idempotent — starring an already-starred story returns current state.
+
+**Request** — no body
+
+**Response 200**
+```json
+{ "success": true, "data": { "starred": true, "starCount": 43 }, "message": null }
+```
+
+**Errors**
+| Status | Code            | When                    |
+|--------|-----------------|-------------------------|
+| 401    | UNAUTHORIZED    | Not authenticated       |
+| 404    | STORY_NOT_FOUND | Story does not exist    |
+
+---
+
+### DELETE `/stories/{slug}/star` 🔒
+Unstar a story. Idempotent — unstarring a story not yet starred returns current state.
+
+**Request** — no body
+
+**Response 200**
+```json
+{ "success": true, "data": { "starred": false, "starCount": 42 }, "message": null }
+```
+
+**Errors**
+| Status | Code            | When                    |
+|--------|-----------------|-------------------------|
+| 401    | UNAUTHORIZED    | Not authenticated       |
+| 404    | STORY_NOT_FOUND | Story does not exist    |
 
 ---
 
