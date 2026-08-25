@@ -10,7 +10,7 @@ env:
   IMAGE_NAME: be
 
 jobs:
-  build-push:
+  build:
     name: Build & Push
     runs-on: ubuntu-latest
     steps:
