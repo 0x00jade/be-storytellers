@@ -56,6 +56,9 @@ public class Story extends BaseEntity {
     @Column(name = "chapter_count", nullable = false)
     private int chapterCount = 0;
 
+    @Column(name = "star_count", nullable = false)
+    private long starCount = 0;
+
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
         name = "story_tags",
@@ -89,6 +92,7 @@ public class Story extends BaseEntity {
     public long getViewCount() { return viewCount; }
     public int getWordCount() { return wordCount; }
     public int getChapterCount() { return chapterCount; }
+    public long getStarCount() { return starCount; }
     public Set<Tag> getTags() { return tags; }
 
     public void setTitle(String title) { this.title = title; }
@@ -99,6 +103,9 @@ public class Story extends BaseEntity {
     public void setVisibility(StoryVisibility visibility) { this.visibility = visibility; }
     public void setMaturityRating(MaturityRating maturityRating) { this.maturityRating = maturityRating; }
     public void setTags(Set<Tag> tags) { this.tags = tags; }
+
+    public void incrementStarCount() { this.starCount++; }
+    public void decrementStarCount() { if (this.starCount > 0) this.starCount--; }
 
     public void incrementChapterCount(int wordCountDelta) {
         this.chapterCount++;

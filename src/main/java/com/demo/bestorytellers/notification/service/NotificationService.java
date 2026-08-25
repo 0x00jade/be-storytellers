@@ -14,7 +14,6 @@ import com.demo.bestorytellers.story.entity.Story;
 import com.demo.bestorytellers.story.repository.StoryRepository;
 import com.demo.bestorytellers.user.entity.User;
 import com.demo.bestorytellers.user.repository.UserRepository;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,7 +52,7 @@ public class NotificationService {
         this.objectMapper = objectMapper;
     }
 
-    @Async
+    @Async("notificationExecutor")
     @Transactional
     public void createNewChapterNotifications(UUID storyId, UUID chapterId, UUID authorId) {
         try {
@@ -61,33 +60,30 @@ public class NotificationService {
             if (story == null) return;
 
             List<UUID> followerIds = followRepository.findFollowingIds(authorId);
-            Set<UUID> recipients = new HashSet<>(followerIds);
-            recipients.remove(authorId);
+            Set<UUID> recipientIds = new HashSet<>(followerIds);
+            recipientIds.remove(authorId);
+            if (recipientIds.isEmpty()) return;
 
-            for (UUID recipientId : recipients) {
-                User recipient = userRepository.findById(recipientId).orElse(null);
-                if (recipient == null || !recipient.isActive()) continue;
-                try {
-                    Map<String, Object> payload = new LinkedHashMap<>();
-                    payload.put("storyId", storyId.toString());
-                    payload.put("storyTitle", story.getTitle());
-                    payload.put("storySlug", story.getSlug());
-                    payload.put("chapterId", chapterId.toString());
-                    payload.put("authorUsername", story.getAuthor().getUsername());
-                    Notification n = new Notification(recipient, NotificationType.NEW_CHAPTER,
-                        objectMapper.writeValueAsString(payload));
-                    notificationRepository.save(n);
-                    notificationRepository.purgeExcessUnread(recipientId);
-                } catch (JsonProcessingException e) {
-                    log.error("Failed to serialize NEW_CHAPTER notification payload for recipient {}", recipientId, e);
-                }
-            }
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("storyId", storyId.toString());
+            payload.put("storyTitle", story.getTitle());
+            payload.put("storySlug", story.getSlug());
+            payload.put("chapterId", chapterId.toString());
+            payload.put("authorUsername", story.getAuthor().getUsername());
+            String payloadJson = objectMapper.writeValueAsString(payload);
+
+            List<User> activeRecipients = userRepository.findByIdInAndIsActiveTrue(recipientIds);
+            List<Notification> notifications = activeRecipients.stream()
+                .map(u -> new Notification(u, NotificationType.NEW_CHAPTER, payloadJson))
+                .toList();
+            notificationRepository.saveAll(notifications);
+            activeRecipients.forEach(u -> notificationRepository.purgeExcessUnread(u.getId()));
         } catch (Exception e) {
             log.error("Failed to create NEW_CHAPTER notifications for story {}", storyId, e);
         }
     }
 
-    @Async
+    @Async("notificationExecutor")
     @Transactional
     public void createNewFollowerNotification(UUID followedUserId, UUID followerUserId) {
         try {
@@ -109,7 +105,7 @@ public class NotificationService {
         }
     }
 
-    @Async
+    @Async("notificationExecutor")
     @Transactional
     public void createCommentReplyNotification(UUID recipientId, UUID commentId, String storySlug,
                                                int chapterNumber, String replierUsername, String preview) {
@@ -133,34 +129,32 @@ public class NotificationService {
         }
     }
 
-    @Async
+    @Async("notificationExecutor")
     @Transactional
     public void createStoryCompleteNotification(UUID storyId) {
         try {
             Story story = storyRepository.findById(storyId).orElse(null);
             if (story == null) return;
 
-            List<UUID> followerIds = followRepository.findFollowingIds(story.getAuthor().getId());
-            Set<UUID> recipients = new HashSet<>(followerIds);
-            recipients.remove(story.getAuthor().getId());
+            UUID authorId = story.getAuthor().getId();
+            List<UUID> followerIds = followRepository.findFollowingIds(authorId);
+            Set<UUID> recipientIds = new HashSet<>(followerIds);
+            recipientIds.remove(authorId);
+            if (recipientIds.isEmpty()) return;
 
-            for (UUID recipientId : recipients) {
-                User recipient = userRepository.findById(recipientId).orElse(null);
-                if (recipient == null || !recipient.isActive()) continue;
-                try {
-                    Map<String, Object> payload = new LinkedHashMap<>();
-                    payload.put("storyId", storyId.toString());
-                    payload.put("storyTitle", story.getTitle());
-                    payload.put("storySlug", story.getSlug());
-                    payload.put("authorUsername", story.getAuthor().getUsername());
-                    Notification n = new Notification(recipient, NotificationType.STORY_COMPLETE,
-                        objectMapper.writeValueAsString(payload));
-                    notificationRepository.save(n);
-                    notificationRepository.purgeExcessUnread(recipientId);
-                } catch (JsonProcessingException e) {
-                    log.error("Failed to serialize STORY_COMPLETE notification payload for recipient {}", recipientId, e);
-                }
-            }
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("storyId", storyId.toString());
+            payload.put("storyTitle", story.getTitle());
+            payload.put("storySlug", story.getSlug());
+            payload.put("authorUsername", story.getAuthor().getUsername());
+            String payloadJson = objectMapper.writeValueAsString(payload);
+
+            List<User> activeRecipients = userRepository.findByIdInAndIsActiveTrue(recipientIds);
+            List<Notification> notifications = activeRecipients.stream()
+                .map(u -> new Notification(u, NotificationType.STORY_COMPLETE, payloadJson))
+                .toList();
+            notificationRepository.saveAll(notifications);
+            activeRecipients.forEach(u -> notificationRepository.purgeExcessUnread(u.getId()));
         } catch (Exception e) {
             log.error("Failed to create STORY_COMPLETE notifications for story {}", storyId, e);
         }

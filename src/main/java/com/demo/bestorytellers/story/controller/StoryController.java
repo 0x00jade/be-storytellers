@@ -9,6 +9,7 @@ import com.demo.bestorytellers.story.dto.ReplaceTagsRequest;
 import com.demo.bestorytellers.story.dto.StoryCardResponse;
 import com.demo.bestorytellers.story.dto.UpdateCoverRequest;
 import com.demo.bestorytellers.story.dto.StoryDetailResponse;
+import com.demo.bestorytellers.story.dto.StarResponse;
 import com.demo.bestorytellers.story.dto.TagResponse;
 import com.demo.bestorytellers.story.dto.UpdateStoryRequest;
 import com.demo.bestorytellers.story.service.StoryService;
@@ -48,10 +49,12 @@ public class StoryController {
         @RequestParam(defaultValue = "newest") String sort,
         @RequestParam(defaultValue = "false") boolean mature,
         @RequestParam(defaultValue = "0") int page,
-        @RequestParam(defaultValue = "20") int size
+        @RequestParam(defaultValue = "20") int size,
+        @AuthenticationPrincipal UserPrincipal principal
     ) {
+        var userId = principal != null ? principal.getUserId() : null;
         return ResponseEntity.ok(ApiResponse.ok(
-            storyService.browse(tag, status, lang, sort, mature, page, size)));
+            storyService.browse(tag, status, lang, sort, mature, page, size, userId)));
     }
 
     @PostMapping("/stories")
@@ -126,9 +129,27 @@ public class StoryController {
     public ResponseEntity<ApiResponse<PageResponse<StoryCardResponse>>> getAuthorStories(
         @PathVariable String username,
         @RequestParam(defaultValue = "0") int page,
-        @RequestParam(defaultValue = "20") int size
+        @RequestParam(defaultValue = "20") int size,
+        @AuthenticationPrincipal UserPrincipal principal
     ) {
-        return ResponseEntity.ok(ApiResponse.ok(storyService.getAuthorStories(username, page, size)));
+        var userId = principal != null ? principal.getUserId() : null;
+        return ResponseEntity.ok(ApiResponse.ok(storyService.getAuthorStories(username, page, size, userId)));
+    }
+
+    @PostMapping("/stories/{slug}/star")
+    public ResponseEntity<ApiResponse<StarResponse>> star(
+        @PathVariable String slug,
+        @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(storyService.star(slug, principal.getUserId())));
+    }
+
+    @DeleteMapping("/stories/{slug}/star")
+    public ResponseEntity<ApiResponse<StarResponse>> unstar(
+        @PathVariable String slug,
+        @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(storyService.unstar(slug, principal.getUserId())));
     }
 
     @GetMapping("/users/me/feed")

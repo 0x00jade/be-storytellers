@@ -4,6 +4,7 @@ import com.demo.bestorytellers.common.exception.ConflictException;
 import com.demo.bestorytellers.common.exception.ResourceNotFoundException;
 import com.demo.bestorytellers.common.exception.ValidationException;
 import com.demo.bestorytellers.common.util.S3Util;
+import com.demo.bestorytellers.notification.service.NotificationService;
 import com.demo.bestorytellers.social.entity.Follow;
 import com.demo.bestorytellers.social.repository.FollowRepository;
 import com.demo.bestorytellers.user.dto.FollowResponse;
@@ -41,6 +42,9 @@ class UserServiceTest {
     @Mock
     private S3Util s3Util;
 
+    @Mock
+    private NotificationService notificationService;
+
     private UserService userService;
 
     private final UUID userId = UUID.randomUUID();
@@ -50,7 +54,7 @@ class UserServiceTest {
 
     @BeforeEach
     void setUp() {
-        userService = new UserService(userRepository, followRepository, redisTemplate, s3Util);
+        userService = new UserService(userRepository, followRepository, redisTemplate, s3Util, notificationService);
 
         user = new User("user@example.com", "currentuser", "Current User", null, "GOOGLE", "sub1");
         ReflectionTestUtils.setField(user, "id", userId);
@@ -121,6 +125,16 @@ class UserServiceTest {
         assertThat(result.following()).isTrue();
         assertThat(result.followerCount()).isEqualTo(6L);
         then(redisTemplate).should().delete("feed:" + userId);
+        then(notificationService).should().createNewFollowerNotification(targetId, userId);
+    }
+
+    @Test
+    void follow_success_doesNotNotifySelfFollow() {
+        given(userRepository.findByUsername("currentuser")).willReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> userService.follow("currentuser", userId))
+            .isInstanceOf(ValidationException.class);
+        then(notificationService).shouldHaveNoInteractions();
     }
 
     @Test

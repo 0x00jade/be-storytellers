@@ -30,11 +30,12 @@ public class SearchService {
 
     @Transactional(readOnly = true)
     public PageResponse<StoryCardResponse> searchStories(String q, String tag, String status,
-                                                         String lang, String sort, int page, int size) {
+                                                         String lang, String sort, int page, int size,
+                                                         UUID currentUserId) {
         if (q == null || q.trim().length() < 2) {
             throw new ValidationException("Query must be at least 2 characters");
         }
-        return storyService.browse(tag, status, lang, sort, false, page, size);
+        return storyService.browse(tag, status, lang, sort, false, page, size, currentUserId);
     }
 
     @Transactional(readOnly = true)

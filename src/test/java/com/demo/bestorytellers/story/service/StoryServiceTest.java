@@ -1,20 +1,23 @@
 package com.demo.bestorytellers.story.service;
 
-import com.demo.bestorytellers.common.exception.ConflictException;
 import com.demo.bestorytellers.common.exception.ForbiddenException;
 import com.demo.bestorytellers.common.exception.ResourceNotFoundException;
 import com.demo.bestorytellers.common.exception.ValidationException;
 import com.demo.bestorytellers.common.util.S3Util;
+import com.demo.bestorytellers.notification.service.NotificationService;
 import com.demo.bestorytellers.social.repository.FollowRepository;
 import com.demo.bestorytellers.story.dto.CreateStoryRequest;
+import com.demo.bestorytellers.story.dto.StarResponse;
 import com.demo.bestorytellers.story.dto.StoryDetailResponse;
 import com.demo.bestorytellers.story.dto.UpdateStoryRequest;
 import com.demo.bestorytellers.story.entity.MaturityRating;
 import com.demo.bestorytellers.story.entity.Story;
+import com.demo.bestorytellers.story.entity.StoryStar;
 import com.demo.bestorytellers.story.entity.StoryStatus;
 import com.demo.bestorytellers.story.entity.StoryVisibility;
 import com.demo.bestorytellers.story.entity.Tag;
 import com.demo.bestorytellers.story.repository.StoryRepository;
+import com.demo.bestorytellers.story.repository.StoryStarRepository;
 import com.demo.bestorytellers.story.repository.TagRepository;
 import com.demo.bestorytellers.user.entity.User;
 import com.demo.bestorytellers.user.repository.UserRepository;
@@ -32,10 +35,13 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -47,12 +53,14 @@ class StoryServiceTest {
     @Mock TagRepository tagRepository;
     @Mock UserRepository userRepository;
     @Mock FollowRepository followRepository;
+    @Mock StoryStarRepository storyStarRepository;
     @Mock RedisTemplate<String, String> redisTemplate;
     @Mock S3Util s3Util;
+    @Mock NotificationService notificationService;
 
     private StoryService service() {
         return new StoryService(storyRepository, tagRepository, userRepository,
-            followRepository, redisTemplate, s3Util);
+            followRepository, storyStarRepository, redisTemplate, s3Util, notificationService);
     }
 
     // --- create ---
@@ -193,6 +201,48 @@ class StoryServiceTest {
         verify(storyRepository).save(story);
     }
 
+    @Test
+    void update_whenStatusBecomesCompleted_thenFiresStoryCompleteNotification() {
+        UUID userId = UUID.randomUUID();
+        UUID storyId = UUID.randomUUID();
+        User owner = mock(User.class);
+        when(owner.getId()).thenReturn(userId);
+        Story story = mock(Story.class);
+        when(story.getId()).thenReturn(storyId);
+        when(story.getAuthor()).thenReturn(owner);
+        when(story.getStatus()).thenReturn(StoryStatus.ONGOING);
+        when(story.getVisibility()).thenReturn(StoryVisibility.PUBLIC);
+        when(story.getMaturityRating()).thenReturn(MaturityRating.EVERYONE);
+        when(story.getTags()).thenReturn(Collections.emptySet());
+        when(storyRepository.findBySlug("test-slug")).thenReturn(Optional.of(story));
+        when(storyRepository.save(story)).thenReturn(story);
+
+        service().update("test-slug", userId,
+            new UpdateStoryRequest(null, null, "COMPLETED", null, null, null, null));
+
+        verify(notificationService).createStoryCompleteNotification(storyId);
+    }
+
+    @Test
+    void update_whenStatusNotCompleted_thenDoesNotFireStoryCompleteNotification() {
+        UUID userId = UUID.randomUUID();
+        User owner = mock(User.class);
+        when(owner.getId()).thenReturn(userId);
+        Story story = mock(Story.class);
+        when(story.getAuthor()).thenReturn(owner);
+        when(story.getStatus()).thenReturn(StoryStatus.ONGOING);
+        when(story.getVisibility()).thenReturn(StoryVisibility.PUBLIC);
+        when(story.getMaturityRating()).thenReturn(MaturityRating.EVERYONE);
+        when(story.getTags()).thenReturn(Collections.emptySet());
+        when(storyRepository.findBySlug("test-slug")).thenReturn(Optional.of(story));
+        when(storyRepository.save(story)).thenReturn(story);
+
+        service().update("test-slug", userId,
+            new UpdateStoryRequest(null, null, "HIATUS", null, null, null, null));
+
+        verify(notificationService, never()).createStoryCompleteNotification(any());
+    }
+
     // --- delete ---
 
     @Test
@@ -290,5 +340,97 @@ class StoryServiceTest {
 
         assertThrows(ForbiddenException.class, () ->
             service().getBySlug("test-slug", visitoerId));
+    }
+
+    // --- star ---
+
+    @Test
+    void star_whenStoryNotFound_thenThrowsResourceNotFound() {
+        when(storyRepository.findBySlug("missing")).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () ->
+            service().star("missing", UUID.randomUUID()));
+    }
+
+    @Test
+    void star_whenAlreadyStarred_thenReturnsIdempotently() {
+        UUID userId = UUID.randomUUID();
+        Story story = mock(Story.class);
+        when(story.getId()).thenReturn(UUID.randomUUID());
+        when(story.getStarCount()).thenReturn(5L);
+        when(storyRepository.findBySlug("test-slug")).thenReturn(Optional.of(story));
+        when(storyStarRepository.existsByIdUserIdAndIdStoryId(userId, story.getId())).thenReturn(true);
+
+        StarResponse result = service().star("test-slug", userId);
+
+        assertTrue(result.starred());
+        assertEquals(5L, result.starCount());
+        verify(storyStarRepository, never()).save(any());
+    }
+
+    @Test
+    void star_whenNotYetStarred_thenSavesStarAndIncrementsCount() {
+        UUID userId = UUID.randomUUID();
+        UUID storyId = UUID.randomUUID();
+        User user = mock(User.class);
+        Story story = mock(Story.class);
+        when(story.getId()).thenReturn(storyId);
+        when(story.getStarCount()).thenReturn(1L);
+        when(storyRepository.findBySlug("test-slug")).thenReturn(Optional.of(story));
+        when(storyStarRepository.existsByIdUserIdAndIdStoryId(userId, storyId)).thenReturn(false);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+
+        StarResponse result = service().star("test-slug", userId);
+
+        assertTrue(result.starred());
+        verify(storyStarRepository).save(any(StoryStar.class));
+        verify(story).incrementStarCount();
+        verify(storyRepository).save(story);
+    }
+
+    // --- unstar ---
+
+    @Test
+    void unstar_whenNotStarred_thenReturnsIdempotently() {
+        UUID userId = UUID.randomUUID();
+        UUID storyId = UUID.randomUUID();
+        Story story = mock(Story.class);
+        when(story.getId()).thenReturn(storyId);
+        when(story.getStarCount()).thenReturn(3L);
+        when(storyRepository.findBySlug("test-slug")).thenReturn(Optional.of(story));
+        when(storyStarRepository.existsByIdUserIdAndIdStoryId(userId, storyId)).thenReturn(false);
+
+        StarResponse result = service().unstar("test-slug", userId);
+
+        assertFalse(result.starred());
+        assertEquals(3L, result.starCount());
+        verify(storyStarRepository, never()).deleteByIdUserIdAndIdStoryId(any(), any());
+    }
+
+    @Test
+    void unstar_whenStarred_thenDeletesStarAndDecrementsCount() {
+        UUID userId = UUID.randomUUID();
+        UUID storyId = UUID.randomUUID();
+        Story story = mock(Story.class);
+        when(story.getId()).thenReturn(storyId);
+        when(story.getStarCount()).thenReturn(2L);
+        when(story.getSlug()).thenReturn("test-slug");
+        when(storyRepository.findBySlug("test-slug")).thenReturn(Optional.of(story));
+        when(storyStarRepository.existsByIdUserIdAndIdStoryId(userId, storyId)).thenReturn(true);
+
+        StarResponse result = service().unstar("test-slug", userId);
+
+        assertFalse(result.starred());
+        verify(storyStarRepository).deleteByIdUserIdAndIdStoryId(userId, storyId);
+        verify(story).decrementStarCount();
+        verify(storyRepository).save(story);
+    }
+
+    @Test
+    void unstar_whenStoryNotFound_thenThrowsResourceNotFound() {
+        when(storyRepository.findBySlug("missing")).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () ->
+            service().unstar("missing", UUID.randomUUID()));
     }
 }

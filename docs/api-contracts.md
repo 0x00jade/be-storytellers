@@ -307,6 +307,8 @@ List published stories by an author. Paginated.
         "viewCount": 1500,
         "chapterCount": 12,
         "wordCount": 48000,
+        "starCount": 42,
+        "isStarred": false,
         "tags": [{ "id": 1, "name": "Fantasy", "slug": "fantasy" }],
         "updatedAt": "2025-01-15T10:30:00Z",
         "createdAt": "2025-01-01T00:00:00Z"
@@ -425,6 +427,8 @@ Create a new story. Requires AUTHOR role.
     "viewCount": 0,
     "chapterCount": 0,
     "wordCount": 0,
+    "starCount": 0,
+    "isStarred": false,
     "tags": [{ "id": 1, "name": "Fantasy", "slug": "fantasy" }],
     "createdAt": "2025-01-15T10:30:00Z",
     "updatedAt": "2025-01-15T10:30:00Z"
@@ -578,6 +582,40 @@ Replace all tags on a story. Author only.
   "message": null
 }
 ```
+
+### POST `/stories/{slug}/star` 🔒
+Star a story. Idempotent — starring an already-starred story returns current state.
+
+**Request** — no body
+
+**Response 200**
+```json
+{ "success": true, "data": { "starred": true, "starCount": 43 }, "message": null }
+```
+
+**Errors**
+| Status | Code            | When                    |
+|--------|-----------------|-------------------------|
+| 401    | UNAUTHORIZED    | Not authenticated       |
+| 404    | STORY_NOT_FOUND | Story does not exist    |
+
+---
+
+### DELETE `/stories/{slug}/star` 🔒
+Unstar a story. Idempotent — unstarring a story not yet starred returns current state.
+
+**Request** — no body
+
+**Response 200**
+```json
+{ "success": true, "data": { "starred": false, "starCount": 42 }, "message": null }
+```
+
+**Errors**
+| Status | Code            | When                    |
+|--------|-----------------|-------------------------|
+| 401    | UNAUTHORIZED    | Not authenticated       |
+| 404    | STORY_NOT_FOUND | Story does not exist    |
 
 ---
 
@@ -1308,6 +1346,140 @@ List all tags.
 **Response 200**
 ```json
 { "success": true, "data": [{ "id": 1, "name": "Fantasy", "slug": "fantasy" }], "message": null }
+```
+
+---
+
+## 11. Wallet & Payments
+
+### GET `/wallet` 🔒
+Get the authenticated user's wallet balance and last 20 transactions.
+
+**Response 200**
+```json
+{
+  "success": true,
+  "data": {
+    "balance": "12.5000",
+    "currency": "USD",
+    "recentTransactions": [
+      {
+        "id": "uuid",
+        "type": "DEPOSIT",
+        "status": "COMPLETED",
+        "amount": "10.0000",
+        "description": "Deposit via payment token tok_visa",
+        "createdAt": "2025-01-15T10:30:00Z"
+      }
+    ]
+  },
+  "message": null
+}
+```
+
+---
+
+### POST `/wallet/deposit` 🔒
+Add funds to the wallet via a payment method token.
+
+Idempotent: replaying the same `idempotencyKey` returns the original transaction without charging again.
+
+**Request**
+```json
+{
+  "amount": "10.00",
+  "idempotencyKey": "client-generated-uuid-max-64-chars",
+  "paymentMethodToken": "tok_visa"
+}
+```
+
+| Field               | Type       | Required | Notes                                       |
+|---------------------|------------|----------|---------------------------------------------|
+| amount              | BigDecimal | Yes      | 0.01 – 1000.00 per transaction              |
+| idempotencyKey      | String     | Yes      | Max 64 chars. Unique per client request.    |
+| paymentMethodToken  | String     | Yes      | Payment gateway token (`mock_*` in dev)     |
+
+**Response 200** — `TransactionResponse`
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "type": "DEPOSIT",
+    "status": "COMPLETED",
+    "amount": "10.0000",
+    "description": "Deposit via payment token tok_visa",
+    "createdAt": "2025-01-15T10:30:00Z"
+  },
+  "message": null
+}
+```
+
+**Errors**
+| Status | Code             | When                                            |
+|--------|------------------|-------------------------------------------------|
+| 400    | VALIDATION_ERROR | `amount` out of range or missing fields         |
+| 400    | BAD_REQUEST      | Wallet is frozen                                |
+| 409    | CONFLICT         | Same `idempotencyKey` used with different amount|
+
+---
+
+### POST `/stories/{slug}/chapters/{number}/purchase` 🔒
+Purchase permanent access to a premium chapter. Deducts the chapter price from the user's wallet balance.
+
+**Request** — no body
+
+**Response 200**
+```json
+{
+  "success": true,
+  "data": {
+    "chapterId": "uuid",
+    "chapterNumber": 3,
+    "amountCharged": "1.9900",
+    "newBalance": "8.0100",
+    "purchasedAt": "2025-01-15T10:30:00Z"
+  },
+  "message": null
+}
+```
+
+**Errors**
+| Status | Code         | When                                            |
+|--------|--------------|-------------------------------------------------|
+| 400    | BAD_REQUEST  | Chapter is not published                        |
+| 400    | BAD_REQUEST  | Chapter has no price (free chapters are free)   |
+| 400    | BAD_REQUEST  | Insufficient wallet balance                     |
+| 400    | BAD_REQUEST  | Author cannot purchase own chapter              |
+| 409    | CONFLICT     | Chapter already purchased                       |
+
+---
+
+### Chapter `price` and `isPurchased` fields (updated)
+
+`GET /stories/{slug}/chapters/{number}` now returns two extra fields:
+
+```json
+{
+  "id": "uuid",
+  "price": "1.9900",
+  "isPurchased": false,
+  "content": null,
+  "..."
+}
+```
+
+| Field       | When null/false                   | Behaviour                                              |
+|-------------|-----------------------------------|--------------------------------------------------------|
+| `price`     | `null` = free chapter             | No purchase needed                                     |
+| `isPurchased`| `false` = not purchased          | `content` is `null` — show purchase prompt in FE       |
+| `content`   | `null` if locked                  | Populated after purchase or for free chapters          |
+
+`PATCH /stories/{slug}/chapters/{number}` now accepts `price` and `removePrice`:
+
+```json
+{ "price": "1.99" }
+{ "removePrice": true }
 ```
 
 ---
