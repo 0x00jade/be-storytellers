@@ -4,6 +4,7 @@ import com.demo.bestorytellers.common.exception.ForbiddenException;
 import com.demo.bestorytellers.common.exception.ResourceNotFoundException;
 import com.demo.bestorytellers.common.exception.ValidationException;
 import com.demo.bestorytellers.common.util.S3Util;
+import com.demo.bestorytellers.notification.service.NotificationService;
 import com.demo.bestorytellers.social.repository.FollowRepository;
 import com.demo.bestorytellers.story.dto.CreateStoryRequest;
 import com.demo.bestorytellers.story.dto.StarResponse;
@@ -55,10 +56,11 @@ class StoryServiceTest {
     @Mock StoryStarRepository storyStarRepository;
     @Mock RedisTemplate<String, String> redisTemplate;
     @Mock S3Util s3Util;
+    @Mock NotificationService notificationService;
 
     private StoryService service() {
         return new StoryService(storyRepository, tagRepository, userRepository,
-            followRepository, storyStarRepository, redisTemplate, s3Util);
+            followRepository, storyStarRepository, redisTemplate, s3Util, notificationService);
     }
 
     // --- create ---
@@ -197,6 +199,48 @@ class StoryServiceTest {
 
         verify(story).setStatus(StoryStatus.COMPLETED);
         verify(storyRepository).save(story);
+    }
+
+    @Test
+    void update_whenStatusBecomesCompleted_thenFiresStoryCompleteNotification() {
+        UUID userId = UUID.randomUUID();
+        UUID storyId = UUID.randomUUID();
+        User owner = mock(User.class);
+        when(owner.getId()).thenReturn(userId);
+        Story story = mock(Story.class);
+        when(story.getId()).thenReturn(storyId);
+        when(story.getAuthor()).thenReturn(owner);
+        when(story.getStatus()).thenReturn(StoryStatus.ONGOING);
+        when(story.getVisibility()).thenReturn(StoryVisibility.PUBLIC);
+        when(story.getMaturityRating()).thenReturn(MaturityRating.EVERYONE);
+        when(story.getTags()).thenReturn(Collections.emptySet());
+        when(storyRepository.findBySlug("test-slug")).thenReturn(Optional.of(story));
+        when(storyRepository.save(story)).thenReturn(story);
+
+        service().update("test-slug", userId,
+            new UpdateStoryRequest(null, null, "COMPLETED", null, null, null, null));
+
+        verify(notificationService).createStoryCompleteNotification(storyId);
+    }
+
+    @Test
+    void update_whenStatusNotCompleted_thenDoesNotFireStoryCompleteNotification() {
+        UUID userId = UUID.randomUUID();
+        User owner = mock(User.class);
+        when(owner.getId()).thenReturn(userId);
+        Story story = mock(Story.class);
+        when(story.getAuthor()).thenReturn(owner);
+        when(story.getStatus()).thenReturn(StoryStatus.ONGOING);
+        when(story.getVisibility()).thenReturn(StoryVisibility.PUBLIC);
+        when(story.getMaturityRating()).thenReturn(MaturityRating.EVERYONE);
+        when(story.getTags()).thenReturn(Collections.emptySet());
+        when(storyRepository.findBySlug("test-slug")).thenReturn(Optional.of(story));
+        when(storyRepository.save(story)).thenReturn(story);
+
+        service().update("test-slug", userId,
+            new UpdateStoryRequest(null, null, "HIATUS", null, null, null, null));
+
+        verify(notificationService, never()).createStoryCompleteNotification(any());
     }
 
     // --- delete ---

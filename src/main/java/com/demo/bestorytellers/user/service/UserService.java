@@ -5,6 +5,7 @@ import com.demo.bestorytellers.common.exception.ConflictException;
 import com.demo.bestorytellers.common.exception.ResourceNotFoundException;
 import com.demo.bestorytellers.common.exception.ValidationException;
 import com.demo.bestorytellers.common.util.S3Util;
+import com.demo.bestorytellers.notification.service.NotificationService;
 import com.demo.bestorytellers.social.entity.Follow;
 import com.demo.bestorytellers.social.repository.FollowRepository;
 import com.demo.bestorytellers.user.dto.AvatarResponse;
@@ -34,13 +35,16 @@ public class UserService {
     private final FollowRepository followRepository;
     private final RedisTemplate<String, String> redisTemplate;
     private final S3Util s3Util;
+    private final NotificationService notificationService;
 
     public UserService(UserRepository userRepository, FollowRepository followRepository,
-                       RedisTemplate<String, String> redisTemplate, S3Util s3Util) {
+                       RedisTemplate<String, String> redisTemplate, S3Util s3Util,
+                       NotificationService notificationService) {
         this.userRepository = userRepository;
         this.followRepository = followRepository;
         this.redisTemplate = redisTemplate;
         this.s3Util = s3Util;
+        this.notificationService = notificationService;
     }
 
     @Transactional(readOnly = true)
@@ -91,6 +95,7 @@ public class UserService {
         }
         followRepository.save(new Follow(currentUserId, target.getId()));
         redisTemplate.delete("feed:" + currentUserId);
+        notificationService.createNewFollowerNotification(target.getId(), currentUserId);
         long count = followRepository.countByIdFollowingId(target.getId());
         return new FollowResponse(true, count);
     }

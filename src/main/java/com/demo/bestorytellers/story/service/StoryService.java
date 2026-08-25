@@ -7,6 +7,7 @@ import com.demo.bestorytellers.common.exception.ResourceNotFoundException;
 import com.demo.bestorytellers.common.exception.ValidationException;
 import com.demo.bestorytellers.common.util.S3Util;
 import com.demo.bestorytellers.common.util.SlugUtil;
+import com.demo.bestorytellers.notification.service.NotificationService;
 import com.demo.bestorytellers.social.repository.FollowRepository;
 import com.demo.bestorytellers.story.dto.AuthorDto;
 import com.demo.bestorytellers.story.dto.CoverImageResponse;
@@ -53,11 +54,13 @@ public class StoryService {
     private final StoryStarRepository storyStarRepository;
     private final RedisTemplate<String, String> redisTemplate;
     private final S3Util s3Util;
+    private final NotificationService notificationService;
 
     public StoryService(StoryRepository storyRepository, TagRepository tagRepository,
                         UserRepository userRepository, FollowRepository followRepository,
                         StoryStarRepository storyStarRepository,
-                        RedisTemplate<String, String> redisTemplate, S3Util s3Util) {
+                        RedisTemplate<String, String> redisTemplate, S3Util s3Util,
+                        NotificationService notificationService) {
         this.storyRepository = storyRepository;
         this.tagRepository = tagRepository;
         this.userRepository = userRepository;
@@ -65,6 +68,7 @@ public class StoryService {
         this.storyStarRepository = storyStarRepository;
         this.redisTemplate = redisTemplate;
         this.s3Util = s3Util;
+        this.notificationService = notificationService;
     }
 
     @Transactional
@@ -110,6 +114,7 @@ public class StoryService {
             throw new ForbiddenException("You do not own this story");
         }
 
+        boolean isNowComplete = false;
         if (request.status() != null) {
             StoryStatus newStatus;
             try {
@@ -119,6 +124,7 @@ public class StoryService {
             }
             validateStatusTransition(story.getStatus(), newStatus, story.getChapterCount());
             story.setStatus(newStatus);
+            isNowComplete = (newStatus == StoryStatus.COMPLETED);
         }
         if (request.title() != null) story.setTitle(request.title());
         if (request.description() != null) story.setDescription(request.description());
@@ -139,6 +145,9 @@ public class StoryService {
 
         Story saved = storyRepository.save(story);
         redisTemplate.delete("story:" + slug);
+        if (isNowComplete) {
+            notificationService.createStoryCompleteNotification(saved.getId());
+        }
         return toDetailResponse(saved, userId);
     }
 
