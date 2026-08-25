@@ -28,10 +28,12 @@ public class SearchController {
         @RequestParam(required = false) String lang,
         @RequestParam(defaultValue = "relevance") String sort,
         @RequestParam(defaultValue = "0") int page,
-        @RequestParam(defaultValue = "20") int size
+        @RequestParam(defaultValue = "20") int size,
+        @AuthenticationPrincipal UserPrincipal principal
     ) {
+        var userId = principal != null ? principal.getUserId() : null;
         return ResponseEntity.ok(ApiResponse.ok(
-            searchService.searchStories(q, tag, status, lang, sort, page, size)));
+            searchService.searchStories(q, tag, status, lang, sort, page, size, userId)));
     }
 
     @GetMapping("/users")

@@ -145,3 +145,6 @@ public record PageResponse<T>(List<T> content, int page, int size, long total, i
 
 - **Simplicity First**: Make every change as simple as possible. Minimal code impact
 - **No Laziness**: Find root causes. No temporary fixes. Senior developer standards
+
+## Update api-contract.md for FE
+- Update ../fe-storytellers/api-contract.md everytime create or update an api for FE catchup change of BE

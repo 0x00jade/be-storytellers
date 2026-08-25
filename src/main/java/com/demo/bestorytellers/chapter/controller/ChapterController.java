@@ -16,6 +16,8 @@ import com.demo.bestorytellers.chapter.dto.VersionResponse;
 import com.demo.bestorytellers.chapter.service.ChapterService;
 import com.demo.bestorytellers.common.dto.ApiResponse;
 import com.demo.bestorytellers.common.dto.PageResponse;
+import com.demo.bestorytellers.wallet.dto.PurchaseResponse;
+import com.demo.bestorytellers.wallet.service.WalletService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -38,9 +40,11 @@ import java.util.List;
 public class ChapterController {
 
     private final ChapterService chapterService;
+    private final WalletService walletService;
 
-    public ChapterController(ChapterService chapterService) {
+    public ChapterController(ChapterService chapterService, WalletService walletService) {
         this.chapterService = chapterService;
+        this.walletService = walletService;
     }
 
     @GetMapping
@@ -105,6 +109,16 @@ public class ChapterController {
     ) {
         return ResponseEntity.ok(ApiResponse.ok(
             chapterService.publish(slug, number, principal.getUserId(), request)));
+    }
+
+    @PostMapping("/{number}/purchase")
+    public ResponseEntity<ApiResponse<PurchaseResponse>> purchase(
+        @PathVariable String slug,
+        @PathVariable int number,
+        @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+            walletService.purchaseChapter(principal.getUserId(), slug, number)));
     }
 
     @PostMapping("/{number}/autosave")

@@ -17,6 +17,8 @@ public record StoryCardResponse(
     long viewCount,
     int chapterCount,
     int wordCount,
+    long starCount,
+    boolean isStarred,
     List<TagResponse> tags,
     Instant updatedAt,
     Instant createdAt

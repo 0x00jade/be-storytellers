@@ -13,9 +13,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
+import java.io.IOException;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
+
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -29,14 +35,129 @@ class AuthServiceTest {
     @Mock private JwtUtil jwtUtil;
     @Mock private RedisTemplate<String, String> redisTemplate;
     @Mock private UserRepository userRepository;
+    @Mock private HttpClient httpClient;
     @Mock private ValueOperations<String, String> valueOps;
 
     private AuthService authService;
 
     @BeforeEach
     void setUp() {
-        authService = new AuthService(jwtUtil, redisTemplate, userRepository, 900L, 604800L);
-        when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        authService = new AuthService(jwtUtil, redisTemplate, userRepository, httpClient, 900L, 604800L);
+        lenient().when(redisTemplate.opsForValue()).thenReturn(valueOps);
+    }
+
+    // --- verifyGoogleToken tests ---
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void verifyGoogleToken_whenValidToken_thenCreatesNewUserAndReturnsTokens() throws Exception {
+        String googleAccessToken = "ya29.valid-access-token";
+        String userInfoJson = """
+            {"sub":"123","email":"new@gmail.com","email_verified":true,"name":"New User","picture":"https://pic.url"}
+            """;
+
+        HttpResponse<String> httpResponse = mock(HttpResponse.class);
+        when(httpResponse.statusCode()).thenReturn(200);
+        when(httpResponse.body()).thenReturn(userInfoJson);
+        doReturn(httpResponse).when(httpClient).send(any(HttpRequest.class), any());
+
+        when(userRepository.findByEmail("new@gmail.com")).thenReturn(Optional.empty());
+        when(userRepository.existsByUsername(any())).thenReturn(false);
+        User savedUser = new User("new@gmail.com", "newuser1234", "New User", "https://pic.url", "GOOGLE", "123");
+        ReflectionTestUtils.setField(savedUser, "id", UUID.randomUUID());
+        when(userRepository.save(any())).thenReturn(savedUser);
+        when(jwtUtil.generateAccessToken(any(), any())).thenReturn("access-token");
+        when(jwtUtil.generateRefreshToken()).thenReturn("refresh-token");
+
+        TokenResponse result = authService.verifyGoogleToken(googleAccessToken);
+
+        assertThat(result.accessToken()).isEqualTo("access-token");
+        assertThat(result.refreshToken()).isEqualTo("refresh-token");
+        assertThat(result.tokenType()).isEqualTo("Bearer");
+        assertThat(result.expiresIn()).isEqualTo(900L);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void verifyGoogleToken_whenExistingUser_thenReturnsTokensWithoutCreating() throws Exception {
+        String userInfoJson = """
+            {"sub":"456","email":"existing@gmail.com","email_verified":true,"name":"Existing","picture":null}
+            """;
+        User existing = new User("existing@gmail.com", "existinguser", "Existing", null, "GOOGLE", "456");
+        ReflectionTestUtils.setField(existing, "id", UUID.randomUUID());
+
+        HttpResponse<String> httpResponse = mock(HttpResponse.class);
+        when(httpResponse.statusCode()).thenReturn(200);
+        when(httpResponse.body()).thenReturn(userInfoJson);
+        doReturn(httpResponse).when(httpClient).send(any(HttpRequest.class), any());
+
+        when(userRepository.findByEmail("existing@gmail.com")).thenReturn(Optional.of(existing));
+        when(jwtUtil.generateAccessToken(any(), any())).thenReturn("access-token");
+        when(jwtUtil.generateRefreshToken()).thenReturn("refresh-token");
+
+        authService.verifyGoogleToken("ya29.token");
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void verifyGoogleToken_whenGoogleReturnsNon200_thenThrowsUnauthorized() throws Exception {
+        HttpResponse<String> httpResponse = mock(HttpResponse.class);
+        when(httpResponse.statusCode()).thenReturn(401);
+        doReturn(httpResponse).when(httpClient).send(any(HttpRequest.class), any());
+
+        assertThatThrownBy(() -> authService.verifyGoogleToken("ya29.bad-token"))
+            .isInstanceOf(UnauthorizedException.class)
+            .hasMessage("Invalid Google access token");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void verifyGoogleToken_whenEmailNotVerified_thenThrowsUnauthorized() throws Exception {
+        String userInfoJson = """
+            {"sub":"789","email":"unverified@gmail.com","email_verified":false,"name":"Unverified","picture":null}
+            """;
+
+        HttpResponse<String> httpResponse = mock(HttpResponse.class);
+        when(httpResponse.statusCode()).thenReturn(200);
+        when(httpResponse.body()).thenReturn(userInfoJson);
+        doReturn(httpResponse).when(httpClient).send(any(HttpRequest.class), any());
+
+        assertThatThrownBy(() -> authService.verifyGoogleToken("ya29.token"))
+            .isInstanceOf(UnauthorizedException.class)
+            .hasMessage("Google email not verified");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void verifyGoogleToken_whenNetworkFails_thenThrowsUnauthorized() throws Exception {
+        when(httpClient.send(any(HttpRequest.class), any()))
+            .thenThrow(new IOException("connection refused"));
+
+        assertThatThrownBy(() -> authService.verifyGoogleToken("ya29.token"))
+            .isInstanceOf(UnauthorizedException.class)
+            .hasMessage("Failed to verify Google token");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void verifyGoogleToken_whenUserIsInactive_thenThrowsUnauthorized() throws Exception {
+        String userInfoJson = """
+            {"sub":"111","email":"banned@gmail.com","email_verified":true,"name":"Banned","picture":null}
+            """;
+        User bannedUser = new User("banned@gmail.com", "banneduser", "Banned", null, "GOOGLE", "111");
+        bannedUser.setActive(false);
+
+        HttpResponse<String> httpResponse = mock(HttpResponse.class);
+        when(httpResponse.statusCode()).thenReturn(200);
+        when(httpResponse.body()).thenReturn(userInfoJson);
+        doReturn(httpResponse).when(httpClient).send(any(HttpRequest.class), any());
+        when(userRepository.findByEmail("banned@gmail.com")).thenReturn(Optional.of(bannedUser));
+
+        assertThatThrownBy(() -> authService.verifyGoogleToken("ya29.token"))
+            .isInstanceOf(UnauthorizedException.class)
+            .hasMessage("Account is inactive");
     }
 
     // --- refresh tests ---
@@ -155,7 +276,7 @@ class AuthServiceTest {
     void logout_whenTokenAlreadyExpired_thenSkipsBlacklist() {
         String jti = UUID.randomUUID().toString();
         UUID userId = UUID.randomUUID();
-        Instant expiry = Instant.now().minusSeconds(60); // already expired
+        Instant expiry = Instant.now().minusSeconds(60);
 
         when(valueOps.get("session:" + userId)).thenReturn(null);
 

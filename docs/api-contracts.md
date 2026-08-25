@@ -55,6 +55,62 @@ Redirect to Google OAuth consent screen. No request body. Handled by Spring Secu
 
 ---
 
+### POST `/auth/verify-token`
+Exchange a Google OAuth **access token** for app-level JWT tokens. Use this after a successful Google Sign-In on the frontend to get tokens for all subsequent API calls.
+
+**Request**
+```json
+{ "accessToken": "ya29.a0AfB_..." }
+```
+
+> The `accessToken` field must contain the Google **access token** (the `ya29.xxx` token returned by Google Sign-In, not the ID token).
+
+**Response 200**
+```json
+{
+  "success": true,
+  "data": {
+    "accessToken": "eyJhbGciOiJIUzI1NiJ9...",
+    "refreshToken": "550e8400-e29b-41d4-a716-446655440000",
+    "tokenType": "Bearer",
+    "expiresIn": 900
+  },
+  "message": null
+}
+```
+
+| Field        | Description                                                         |
+|--------------|---------------------------------------------------------------------|
+| accessToken  | Short-lived JWT. Include in `Authorization: Bearer {accessToken}` header |
+| refreshToken | Long-lived UUID. Store securely; use to get a new access token      |
+| tokenType    | Always `"Bearer"`                                                   |
+| expiresIn    | Access token lifetime in seconds                                    |
+
+**Errors**
+| Status | Code         | When                                         |
+|--------|--------------|----------------------------------------------|
+| 400    | BAD_REQUEST  | `accessToken` field is missing or blank      |
+| 401    | UNAUTHORIZED | Google rejected the token (invalid/expired)  |
+| 401    | UNAUTHORIZED | Google account email is not verified         |
+| 401    | UNAUTHORIZED | Account has been deactivated                 |
+
+**Frontend flow**
+```js
+// 1. Sign in with Google (e.g. Google Identity Services)
+const { access_token } = await googleSignIn();
+
+// 2. Exchange for app tokens
+const res = await fetch('/api/v1/auth/verify-token', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ accessToken: access_token })
+});
+const { data } = await res.json();
+// store data.accessToken and data.refreshToken
+```
+
+---
+
 ### POST `/auth/refresh`
 Exchange a refresh token for a new access token.
 
@@ -106,7 +162,7 @@ Get the currently authenticated user.
     "email": "user@gmail.com",
     "username": "johndoe",
     "displayName": "John Doe",
-    "avatarUrl": "https://s3.amazonaws.com/...",
+    "avatarUrl": "https://storytellers-content.s3.us-east-1.amazonaws.com/avatars/...",
     "bio": "I write fantasy stories",
     "role": "AUTHOR",
     "createdAt": "2025-01-01T00:00:00Z"
@@ -135,7 +191,7 @@ Get a public user profile.
     "id": "uuid",
     "username": "johndoe",
     "displayName": "John Doe",
-    "avatarUrl": "https://s3.amazonaws.com/...",
+    "avatarUrl": "https://storytellers-content.s3.us-east-1.amazonaws.com/avatars/...",
     "bio": "I write fantasy stories",
     "role": "AUTHOR",
     "followerCount": 120,
@@ -196,7 +252,7 @@ Upload profile avatar. Multipart form data.
 ```json
 {
   "success": true,
-  "data": { "avatarUrl": "https://s3.amazonaws.com/avatars/uuid.jpg" },
+  "data": { "avatarUrl": "https://storytellers-content.s3.us-east-1.amazonaws.com/avatars/{userId}/{uuid}.jpg" },
   "message": null
 }
 ```
@@ -206,6 +262,19 @@ Upload profile avatar. Multipart form data.
 |--------|------------------|------------------------------|
 | 400    | BAD_REQUEST      | File type not JPEG/PNG       |
 | 400    | BAD_REQUEST      | File exceeds 5MB             |
+| 401    | UNAUTHORIZED     | Not authenticated            |
+
+**Frontend example**
+```js
+const form = new FormData();
+form.append('file', fileInput.files[0]); // JPEG or PNG, max 5MB
+
+const res = await fetch('/api/v1/users/me/avatar', {
+  method: 'POST',
+  headers: { 'Authorization': 'Bearer ' + accessToken },
+  body: form  // Do NOT set Content-Type manually — browser sets multipart boundary
+});
+```
 
 ---
 
@@ -230,7 +299,7 @@ List published stories by an author. Paginated.
         "slug": "my-story-a1b2c3d4",
         "title": "My Story",
         "description": "A tale of...",
-        "coverImageUrl": "https://s3.amazonaws.com/...",
+        "coverImageUrl": "https://storytellers-content.s3.us-east-1.amazonaws.com/covers/...",
         "author": { "id": "uuid", "username": "johndoe", "displayName": "John Doe", "avatarUrl": "..." },
         "status": "ONGOING",
         "maturityRating": "EVERYONE",
@@ -238,6 +307,8 @@ List published stories by an author. Paginated.
         "viewCount": 1500,
         "chapterCount": 12,
         "wordCount": 48000,
+        "starCount": 42,
+        "isStarred": false,
         "tags": [{ "id": 1, "name": "Fantasy", "slug": "fantasy" }],
         "updatedAt": "2025-01-15T10:30:00Z",
         "createdAt": "2025-01-01T00:00:00Z"
@@ -325,7 +396,7 @@ Create a new story. Requires AUTHOR role.
   "description": "In a world where magic is outlawed...",
   "language": "en",
   "maturityRating": "EVERYONE",
-  "tagIds": [1, 3]
+  "tagNames": ["fantasy", "adventure"]
 }
 ```
 
@@ -336,7 +407,7 @@ Create a new story. Requires AUTHOR role.
 | description   | `@Size(max = 2000)`                           |
 | language      | `@NotBlank`, valid ISO 639-1 code             |
 | maturityRating| `@NotNull`, one of: EVERYONE, TEEN, MATURE    |
-| tagIds        | Max 10 tag IDs, each must exist               |
+| tagNames      | Max 10 tag names. Unknown tags are created automatically (lowercased) |
 
 **Response 201**
 ```json
@@ -356,6 +427,8 @@ Create a new story. Requires AUTHOR role.
     "viewCount": 0,
     "chapterCount": 0,
     "wordCount": 0,
+    "starCount": 0,
+    "isStarred": false,
     "tags": [{ "id": 1, "name": "Fantasy", "slug": "fantasy" }],
     "createdAt": "2025-01-15T10:30:00Z",
     "updatedAt": "2025-01-15T10:30:00Z"
@@ -428,7 +501,7 @@ Delete a story and all its chapters. Author only.
 ---
 
 ### POST `/stories/{slug}/cover` 🔒
-Upload story cover image. Author only. Multipart form data.
+Upload story cover image via multipart. Author only. Replaces any existing cover.
 
 **Request** — `multipart/form-data`
 | Field | Type | Required | Notes                 |
@@ -437,8 +510,51 @@ Upload story cover image. Author only. Multipart form data.
 
 **Response 200**
 ```json
-{ "success": true, "data": { "coverImageUrl": "https://s3.amazonaws.com/covers/uuid.jpg" }, "message": null }
+{
+  "success": true,
+  "data": { "coverImageUrl": "https://storytellers-content.s3.us-east-1.amazonaws.com/covers/{storyId}/{uuid}.jpg" },
+  "message": null
+}
 ```
+
+**Errors**
+| Status | Code             | When                          |
+|--------|------------------|-------------------------------|
+| 400    | BAD_REQUEST      | File type not JPEG/PNG        |
+| 400    | BAD_REQUEST      | File exceeds 10MB             |
+| 403    | FORBIDDEN        | Not the story author          |
+| 404    | STORY_NOT_FOUND  | Story slug does not exist     |
+
+---
+
+### PATCH `/stories/{slug}/cover` 🔒
+Update story cover using a URL already uploaded to S3. Author only. Use this after a direct S3 upload via `POST /upload/presign`.
+
+**Request**
+```json
+{ "coverImageUrl": "https://storytellers-content.s3.us-east-1.amazonaws.com/covers/{storyId}/{uuid}.jpg" }
+```
+
+| Field         | Type   | Required | Notes                                    |
+|---------------|--------|----------|------------------------------------------|
+| coverImageUrl | String | Yes      | Must be a valid S3 URL for this bucket   |
+
+**Response 200**
+```json
+{
+  "success": true,
+  "data": { "coverImageUrl": "https://storytellers-content.s3.us-east-1.amazonaws.com/covers/{storyId}/{uuid}.jpg" },
+  "message": null
+}
+```
+
+**Errors**
+| Status | Code             | When                                      |
+|--------|------------------|-------------------------------------------|
+| 400    | VALIDATION_ERROR | `coverImageUrl` is blank                  |
+| 400    | BAD_REQUEST      | URL is not from this bucket               |
+| 403    | FORBIDDEN        | Not the story author                      |
+| 404    | STORY_NOT_FOUND  | Story slug does not exist                 |
 
 ---
 
@@ -447,13 +563,13 @@ Replace all tags on a story. Author only.
 
 **Request**
 ```json
-{ "tagIds": [1, 2, 5] }
+{ "tagNames": ["fantasy", "adventure", "sci-fi"] }
 ```
 
 **Validation**
-| Field  | Rules              |
-|--------|--------------------|
-| tagIds | Max 10, all must exist |
+| Field    | Rules                                                             |
+|----------|-------------------------------------------------------------------|
+| tagNames | Max 10 names. Unknown tags are created automatically (lowercased) |
 
 **Response 200**
 ```json
@@ -466,6 +582,40 @@ Replace all tags on a story. Author only.
   "message": null
 }
 ```
+
+### POST `/stories/{slug}/star` 🔒
+Star a story. Idempotent — starring an already-starred story returns current state.
+
+**Request** — no body
+
+**Response 200**
+```json
+{ "success": true, "data": { "starred": true, "starCount": 43 }, "message": null }
+```
+
+**Errors**
+| Status | Code            | When                    |
+|--------|-----------------|-------------------------|
+| 401    | UNAUTHORIZED    | Not authenticated       |
+| 404    | STORY_NOT_FOUND | Story does not exist    |
+
+---
+
+### DELETE `/stories/{slug}/star` 🔒
+Unstar a story. Idempotent — unstarring a story not yet starred returns current state.
+
+**Request** — no body
+
+**Response 200**
+```json
+{ "success": true, "data": { "starred": false, "starCount": 42 }, "message": null }
+```
+
+**Errors**
+| Status | Code            | When                    |
+|--------|-----------------|-------------------------|
+| 401    | UNAUTHORIZED    | Not authenticated       |
+| 404    | STORY_NOT_FOUND | Story does not exist    |
 
 ---
 
@@ -584,15 +734,22 @@ Update chapter content or title. Author only.
 
 ### POST `/stories/{slug}/chapters/{number}/autosave` 🔒
 Save draft HTML content to the DB without creating a version record. Author only.
+If the chapter with the given `{number}` does not exist, a new chapter is created automatically (assigned the next sequential number) and the content is saved to it.
 
 **Request**
 ```json
-{ "content": "<p>Once upon a time...</p>" }
+{ "title": "Optional Title", "content": "<p>Once upon a time...</p>", "wordCount": 42 }
 ```
+
+| Field     | Type    | Required | Notes                                                               |
+|-----------|---------|----------|---------------------------------------------------------------------|
+| title     | String  | No       | Used only when creating a new chapter. Defaults to "Chapter {n}"   |
+| content   | String  | Yes      | HTML content                                                        |
+| wordCount | Integer | Yes      | Word count calculated from the HTML content on the client side      |
 
 **Response 200**
 ```json
-{ "success": true, "data": { "savedAt": "2025-01-15T10:30:00Z" }, "message": null }
+{ "success": true, "data": { "chapterId": "uuid", "chapterNumber": 3, "savedAt": "2025-01-15T10:30:00Z" }, "message": null }
 ```
 
 ---
@@ -1090,7 +1247,98 @@ Mark a single notification as read.
 
 ---
 
-## 9. Tags (Admin)
+## 9. Upload
+
+### POST `/upload/presign` 🔒
+Generate a presigned S3 URL so the frontend can upload an image directly to S3 without routing the file through the backend.
+
+**Request**
+```json
+{
+  "uploadType": "AVATAR",
+  "contentType": "image/jpeg",
+  "fileSizeBytes": 2097152,
+  "referenceId": null
+}
+```
+
+| Field         | Type   | Required    | Notes                                                       |
+|---------------|--------|-------------|-------------------------------------------------------------|
+| uploadType    | Enum   | Yes         | `AVATAR`, `STORY_COVER`, or `CHAPTER_IMAGE`                 |
+| contentType   | String | Yes         | `image/jpeg` or `image/png`                                 |
+| fileSizeBytes | Long   | Yes         | File size in bytes. Must be 1–5242880 (max 5 MB)            |
+| referenceId   | UUID   | Conditional | Required for `STORY_COVER` (storyId) and `CHAPTER_IMAGE` (chapterId) |
+
+**Response 200**
+```json
+{
+  "success": true,
+  "data": {
+    "uploadUrl": "https://storytellers-content.s3.us-east-1.amazonaws.com/avatars/...?X-Amz-Signature=...",
+    "objectUrl": "https://storytellers-content.s3.us-east-1.amazonaws.com/avatars/{userId}/{uuid}.jpg",
+    "key": "avatars/{userId}/{uuid}.jpg",
+    "expiresIn": 300
+  },
+  "message": null
+}
+```
+
+| Field     | Description                                                              |
+|-----------|--------------------------------------------------------------------------|
+| uploadUrl | Presigned PUT URL. Valid for `expiresIn` seconds                        |
+| objectUrl | Final public URL of the uploaded object — save this to the DB after upload |
+| key       | S3 object key                                                            |
+| expiresIn | Presigned URL lifetime in seconds (300 = 5 minutes)                     |
+
+**Errors**
+| Status | Code             | When                                              |
+|--------|------------------|---------------------------------------------------|
+| 400    | VALIDATION_ERROR | `contentType` is not `image/jpeg` or `image/png`  |
+| 400    | VALIDATION_ERROR | `fileSizeBytes` exceeds 5 MB (5242880 bytes)      |
+| 400    | BAD_REQUEST      | `referenceId` missing for `STORY_COVER` or `CHAPTER_IMAGE` |
+| 401    | UNAUTHORIZED     | Not authenticated                                 |
+
+**Frontend flow**
+```js
+// 1. Request presigned URL (BE validates size here)
+const { data } = await fetch('/api/v1/upload/presign', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer ' + accessToken,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    uploadType: 'AVATAR',        // or 'STORY_COVER' or 'CHAPTER_IMAGE'
+    contentType: file.type,      // 'image/jpeg' or 'image/png'
+    fileSizeBytes: file.size,    // BE rejects if > 5MB
+    referenceId: null            // storyId for STORY_COVER, chapterId for CHAPTER_IMAGE
+  })
+}).then(r => r.json());
+
+// 2. PUT file directly to S3 (no auth header needed)
+await fetch(data.uploadUrl, {
+  method: 'PUT',
+  headers: { 'Content-Type': file.type },
+  body: file
+});
+
+// 3. Use data.objectUrl to update avatar/story cover via PATCH, or embed in chapter HTML
+```
+
+**S3 CORS requirement**  
+Your S3 bucket must have a CORS rule allowing `PUT` from your frontend origin:
+```json
+[{
+  "AllowedOrigins": ["https://yourdomain.com"],
+  "AllowedMethods": ["PUT"],
+  "AllowedHeaders": ["Content-Type"],
+  "MaxAgeSeconds": 3000
+}]
+```
+
+---
+
+## 10. Tags (Admin)
 
 ### GET `/tags`
 List all tags.
@@ -1098,6 +1346,140 @@ List all tags.
 **Response 200**
 ```json
 { "success": true, "data": [{ "id": 1, "name": "Fantasy", "slug": "fantasy" }], "message": null }
+```
+
+---
+
+## 11. Wallet & Payments
+
+### GET `/wallet` 🔒
+Get the authenticated user's wallet balance and last 20 transactions.
+
+**Response 200**
+```json
+{
+  "success": true,
+  "data": {
+    "balance": "12.5000",
+    "currency": "USD",
+    "recentTransactions": [
+      {
+        "id": "uuid",
+        "type": "DEPOSIT",
+        "status": "COMPLETED",
+        "amount": "10.0000",
+        "description": "Deposit via payment token tok_visa",
+        "createdAt": "2025-01-15T10:30:00Z"
+      }
+    ]
+  },
+  "message": null
+}
+```
+
+---
+
+### POST `/wallet/deposit` 🔒
+Add funds to the wallet via a payment method token.
+
+Idempotent: replaying the same `idempotencyKey` returns the original transaction without charging again.
+
+**Request**
+```json
+{
+  "amount": "10.00",
+  "idempotencyKey": "client-generated-uuid-max-64-chars",
+  "paymentMethodToken": "tok_visa"
+}
+```
+
+| Field               | Type       | Required | Notes                                       |
+|---------------------|------------|----------|---------------------------------------------|
+| amount              | BigDecimal | Yes      | 0.01 – 1000.00 per transaction              |
+| idempotencyKey      | String     | Yes      | Max 64 chars. Unique per client request.    |
+| paymentMethodToken  | String     | Yes      | Payment gateway token (`mock_*` in dev)     |
+
+**Response 200** — `TransactionResponse`
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "type": "DEPOSIT",
+    "status": "COMPLETED",
+    "amount": "10.0000",
+    "description": "Deposit via payment token tok_visa",
+    "createdAt": "2025-01-15T10:30:00Z"
+  },
+  "message": null
+}
+```
+
+**Errors**
+| Status | Code             | When                                            |
+|--------|------------------|-------------------------------------------------|
+| 400    | VALIDATION_ERROR | `amount` out of range or missing fields         |
+| 400    | BAD_REQUEST      | Wallet is frozen                                |
+| 409    | CONFLICT         | Same `idempotencyKey` used with different amount|
+
+---
+
+### POST `/stories/{slug}/chapters/{number}/purchase` 🔒
+Purchase permanent access to a premium chapter. Deducts the chapter price from the user's wallet balance.
+
+**Request** — no body
+
+**Response 200**
+```json
+{
+  "success": true,
+  "data": {
+    "chapterId": "uuid",
+    "chapterNumber": 3,
+    "amountCharged": "1.9900",
+    "newBalance": "8.0100",
+    "purchasedAt": "2025-01-15T10:30:00Z"
+  },
+  "message": null
+}
+```
+
+**Errors**
+| Status | Code         | When                                            |
+|--------|--------------|-------------------------------------------------|
+| 400    | BAD_REQUEST  | Chapter is not published                        |
+| 400    | BAD_REQUEST  | Chapter has no price (free chapters are free)   |
+| 400    | BAD_REQUEST  | Insufficient wallet balance                     |
+| 400    | BAD_REQUEST  | Author cannot purchase own chapter              |
+| 409    | CONFLICT     | Chapter already purchased                       |
+
+---
+
+### Chapter `price` and `isPurchased` fields (updated)
+
+`GET /stories/{slug}/chapters/{number}` now returns two extra fields:
+
+```json
+{
+  "id": "uuid",
+  "price": "1.9900",
+  "isPurchased": false,
+  "content": null,
+  "..."
+}
+```
+
+| Field       | When null/false                   | Behaviour                                              |
+|-------------|-----------------------------------|--------------------------------------------------------|
+| `price`     | `null` = free chapter             | No purchase needed                                     |
+| `isPurchased`| `false` = not purchased          | `content` is `null` — show purchase prompt in FE       |
+| `content`   | `null` if locked                  | Populated after purchase or for free chapters          |
+
+`PATCH /stories/{slug}/chapters/{number}` now accepts `price` and `removePrice`:
+
+```json
+{ "price": "1.99" }
+{ "removePrice": true }
 ```
 
 ---

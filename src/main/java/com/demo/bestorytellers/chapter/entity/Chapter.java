@@ -4,6 +4,7 @@ import com.demo.bestorytellers.common.entity.BaseEntity;
 import com.demo.bestorytellers.story.entity.Story;
 import jakarta.persistence.*;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -38,6 +39,10 @@ public class Chapter extends BaseEntity {
     @Column(name = "published_at", columnDefinition = "TIMESTAMPTZ")
     private Instant publishedAt;
 
+    // null = free chapter; non-null = premium, reader must pay to access
+    @Column(precision = 19, scale = 4)
+    private BigDecimal price;
+
     protected Chapter() {}
 
     public Chapter(Story story, String title, int chapterNumber) {
@@ -54,10 +59,12 @@ public class Chapter extends BaseEntity {
     public int getWordCount() { return wordCount; }
     public ChapterStatus getStatus() { return status; }
     public Instant getPublishedAt() { return publishedAt; }
+    public BigDecimal getPrice() { return price; }
 
     public void setTitle(String title) { this.title = title; }
     public void setContent(String content) { this.content = content; }
     public void setWordCount(int wordCount) { this.wordCount = wordCount; }
     public void setStatus(ChapterStatus status) { this.status = status; }
     public void setPublishedAt(Instant publishedAt) { this.publishedAt = publishedAt; }
+    public void setPrice(BigDecimal price) { this.price = price; }
 }

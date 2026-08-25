@@ -2,6 +2,7 @@ package com.demo.bestorytellers.auth.controller;
 
 import com.demo.bestorytellers.auth.dto.RefreshTokenRequest;
 import com.demo.bestorytellers.auth.dto.TokenResponse;
+import com.demo.bestorytellers.auth.dto.VerifyGoogleToken;
 import com.demo.bestorytellers.auth.security.JwtUtil;
 import com.demo.bestorytellers.auth.security.UserPrincipal;
 import com.demo.bestorytellers.auth.service.AuthService;
@@ -23,6 +24,13 @@ public class AuthController {
     public AuthController(AuthService authService, JwtUtil jwtUtil) {
         this.authService = authService;
         this.jwtUtil = jwtUtil;
+    }
+
+    @PostMapping("/verify-token")
+    public ResponseEntity<ApiResponse<TokenResponse>> verifyGoogleToken(
+            @Valid @RequestBody VerifyGoogleToken request
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(authService.verifyGoogleToken(request.accessToken())));
     }
 
     @PostMapping("/refresh")

@@ -1,5 +1,6 @@
 package com.demo.bestorytellers.chapter.dto;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -11,6 +12,8 @@ public record ChapterResponse(
     String content,
     int wordCount,
     String status,
+    BigDecimal price,
+    boolean isPurchased,
     Instant publishedAt,
     Instant createdAt,
     Instant updatedAt

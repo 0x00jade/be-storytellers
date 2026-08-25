@@ -11,5 +11,5 @@ public record CreateStoryRequest(
     @Size(max = 2000) String description,
     @NotBlank String language,
     @NotNull String maturityRating,
-    @Size(max = 10) List<Integer> tagIds
+    @Size(max = 10) List<String> tagNames
 ) {}

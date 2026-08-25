@@ -16,6 +16,7 @@ java {
 
 repositories {
     mavenCentral()
+    google()
 }
 
 dependencies {
@@ -40,12 +41,16 @@ dependencies {
 
     implementation 'org.jsoup:jsoup:1.17.2'
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.3'
+    implementation 'org.springframework.retry:spring-retry'
+    implementation 'org.springframework:spring-aspects'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'
     testImplementation 'org.testcontainers:postgresql:1.19.8'
     testImplementation 'org.testcontainers:junit-jupiter:1.19.8'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    implementation 'com.google.api-client:google-api-client:2.7.0'
 }
 
 tasks.named('test') {

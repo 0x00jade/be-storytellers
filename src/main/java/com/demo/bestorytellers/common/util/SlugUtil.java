@@ -23,4 +23,14 @@ public final class SlugUtil {
         String suffix = id.toString().replace("-", "").substring(0, 8);
         return normalized + "-" + suffix;
     }
+
+    public static String tagSlug(String name) {
+        return Normalizer.normalize(name, Normalizer.Form.NFD)
+            .replaceAll("[^\\p{ASCII}]", "")
+            .toLowerCase()
+            .trim()
+            .replaceAll("[^a-z0-9\\s]", "")
+            .replaceAll("\\s+", "-")
+            .replaceAll("^-|-$", "");
+    }
 }
