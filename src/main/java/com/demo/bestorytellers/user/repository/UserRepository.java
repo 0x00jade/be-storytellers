@@ -22,7 +22,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     boolean existsByEmail(String email);
 
-    List<User> findByIdInAndIsActiveTrue(Collection<UUID> ids);
+    List<User> findByIdInAndActiveTrue(Collection<UUID> ids);
 
     @Query("SELECT u FROM User u WHERE LOWER(u.username) LIKE LOWER(CONCAT('%', :q, '%')) OR LOWER(u.displayName) LIKE LOWER(CONCAT('%', :q, '%'))")
     Page<User> searchByUsernameOrDisplayName(@Param("q") String q, Pageable pageable);

@@ -75,19 +75,19 @@ class NotificationServiceTest {
     void createNewChapterNotifications_batchLoadsUsersOnce() {
         given(storyRepository.findById(storyId)).willReturn(Optional.of(story));
         given(followRepository.findFollowingIds(authorId)).willReturn(List.of(follower1Id, follower2Id));
-        given(userRepository.findByIdInAndIsActiveTrue(anyCollection())).willReturn(List.of(follower1, follower2));
+        given(userRepository.findByIdInAndActiveTrue(anyCollection())).willReturn(List.of(follower1, follower2));
 
         service.createNewChapterNotifications(storyId, chapterId, authorId);
 
         then(userRepository).should(never()).findById(any());
-        then(userRepository).should().findByIdInAndIsActiveTrue(anyCollection());
+        then(userRepository).should().findByIdInAndActiveTrue(anyCollection());
     }
 
     @Test
     void createNewChapterNotifications_batchSavesAllNotifications() {
         given(storyRepository.findById(storyId)).willReturn(Optional.of(story));
         given(followRepository.findFollowingIds(authorId)).willReturn(List.of(follower1Id, follower2Id));
-        given(userRepository.findByIdInAndIsActiveTrue(anyCollection())).willReturn(List.of(follower1, follower2));
+        given(userRepository.findByIdInAndActiveTrue(anyCollection())).willReturn(List.of(follower1, follower2));
 
         service.createNewChapterNotifications(storyId, chapterId, authorId);
 
@@ -105,7 +105,7 @@ class NotificationServiceTest {
     void createNewChapterNotifications_excludesAuthorFromRecipients() {
         given(storyRepository.findById(storyId)).willReturn(Optional.of(story));
         given(followRepository.findFollowingIds(authorId)).willReturn(List.of(authorId, follower1Id));
-        given(userRepository.findByIdInAndIsActiveTrue(anyCollection())).willReturn(List.of(follower1));
+        given(userRepository.findByIdInAndActiveTrue(anyCollection())).willReturn(List.of(follower1));
 
         service.createNewChapterNotifications(storyId, chapterId, authorId);
 
@@ -141,7 +141,7 @@ class NotificationServiceTest {
     void createStoryCompleteNotification_batchSavesAllNotifications() {
         given(storyRepository.findById(storyId)).willReturn(Optional.of(story));
         given(followRepository.findFollowingIds(authorId)).willReturn(List.of(follower1Id, follower2Id));
-        given(userRepository.findByIdInAndIsActiveTrue(anyCollection())).willReturn(List.of(follower1, follower2));
+        given(userRepository.findByIdInAndActiveTrue(anyCollection())).willReturn(List.of(follower1, follower2));
 
         service.createStoryCompleteNotification(storyId);
 

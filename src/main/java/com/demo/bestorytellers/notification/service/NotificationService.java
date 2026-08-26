@@ -72,7 +72,7 @@ public class NotificationService {
             payload.put("authorUsername", story.getAuthor().getUsername());
             String payloadJson = objectMapper.writeValueAsString(payload);
 
-            List<User> activeRecipients = userRepository.findByIdInAndIsActiveTrue(recipientIds);
+            List<User> activeRecipients = userRepository.findByIdInAndActiveTrue(recipientIds);
             List<Notification> notifications = activeRecipients.stream()
                 .map(u -> new Notification(u, NotificationType.NEW_CHAPTER, payloadJson))
                 .toList();
@@ -149,7 +149,7 @@ public class NotificationService {
             payload.put("authorUsername", story.getAuthor().getUsername());
             String payloadJson = objectMapper.writeValueAsString(payload);
 
-            List<User> activeRecipients = userRepository.findByIdInAndIsActiveTrue(recipientIds);
+            List<User> activeRecipients = userRepository.findByIdInAndActiveTrue(recipientIds);
             List<Notification> notifications = activeRecipients.stream()
                 .map(u -> new Notification(u, NotificationType.STORY_COMPLETE, payloadJson))
                 .toList();
